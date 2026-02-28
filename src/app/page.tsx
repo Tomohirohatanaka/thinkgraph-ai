@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 // ─── Types ────────────────────────────────────────────────────
 type Screen = "home" | "char_detail" | "session" | "result";
@@ -546,6 +547,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("learn");
   const [apiKey, setApiKey] = useState("");
   const [apiInput, setApiInput] = useState("");
+  const [authUser, setAuthUser] = useState<{ email: string; name: string } | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
 
   const [topic, setTopic] = useState<TopicData | null>(null);
@@ -629,6 +631,16 @@ export default function App() {
         })
         .catch(() => {});
     }
+    // 認証ユーザー確認
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setAuthUser({ email: user.email || "", name: user.user_metadata?.full_name || user.email || "" });
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) setAuthUser({ email: session.user.email || "", name: session.user.user_metadata?.full_name || session.user.email || "" });
+      else setAuthUser(null);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -1314,16 +1326,46 @@ export default function App() {
   return (
     <div className="app">
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+      {/* ── 認証ヘッダー ── */}
+      <div style={{
+        position: "sticky", top: 0, zIndex: 50,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "8px 16px", background: "rgba(255,255,255,0.95)",
+        backdropFilter: "blur(8px)", borderBottom: "1px solid #f0f0f0",
+        marginBottom: 4,
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: "#222", letterSpacing: "-0.5px" }}>
+          teach<span style={{ color: cc }}>AI</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {authUser ? (
+            <>
+              <span style={{ fontSize: 12, color: "#888", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {authUser.name}
+              </span>
+              <a href="/dashboard" style={{ padding: "5px 12px", background: "#0A2342", color: "white", borderRadius: 8, textDecoration: "none", fontSize: 12, fontWeight: 700 }}>
+                📊 ダッシュボード
+              </a>
+              <button onClick={async () => { const sb = createClient(); await sb.auth.signOut(); setAuthUser(null); }}
+                style={{ padding: "5px 12px", background: "transparent", border: "1px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#666" }}>
+                ログアウト
+              </button>
+            </>
+          ) : (
+            <>
+              <a href="/auth/login" style={{ padding: "5px 14px", background: "transparent", border: "1px solid #ddd", borderRadius: 8, textDecoration: "none", fontSize: 12, color: "#555", fontWeight: 600 }}>
+                ログイン
+              </a>
+              <a href="/auth/signup" style={{ padding: "5px 14px", background: "#0A2342", color: "white", borderRadius: 8, textDecoration: "none", fontSize: 12, fontWeight: 700 }}>
+                無料登録
+              </a>
+            </>
+          )}
+        </div>
+      </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div className="container home-wrap">
-
-          {/* Logo */}
-          <div style={{ marginBottom: "1.5rem" }}>
-            <div style={{ fontSize: 38, fontWeight: 900, color: "#222", letterSpacing: "-1.5px", lineHeight: 1 }}>
-              teach<span style={{ color: cc }}>AI</span>
-            </div>
-            <div style={{ fontSize: 13, color: "#bbb", marginTop: "0.3rem" }}>AIに教えてあげる、新しい学びのかたち</div>
-          </div>
 
           {/* Tabs */}
           <div className="tab-nav">

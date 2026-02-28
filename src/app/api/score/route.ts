@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
-import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { corsResponse } from "@/lib/api";
+import { createClient } from "@/lib/supabase/server";
 
 interface Message { role: "user" | "assistant"; content: string; }
-interface LogicGraph { nodes: { id: string; label: string; node_type: string; depth: number }[]; edges: { source: string; target: string; relation: string }[]; }
+interface LogicGraph {
+  nodes: { id: string; label: string; node_type: string; depth: number }[];
+  edges: { source: string; target: string; relation: string }[];
+}
 
 function extractJSON(text: string): unknown {
   const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "");
@@ -14,8 +18,9 @@ function extractJSON(text: string): unknown {
 
 export async function POST(req: NextRequest) {
   try {
-    const { apiKey, domain, idealGraph, conversation } = await req.json() as {
-      apiKey: string; domain: string; idealGraph: LogicGraph; conversation: Message[];
+    const { apiKey, domain, idealGraph, conversation, mode, topic } = await req.json() as {
+      apiKey: string; domain: string; idealGraph: LogicGraph;
+      conversation: Message[]; mode?: string; topic?: string;
     };
     const provider = detectProvider(apiKey);
     const convText = conversation
@@ -23,91 +28,71 @@ export async function POST(req: NextRequest) {
       .map(m => `${m.role === "user" ? "受験者" : "面接官"}: ${m.content}`)
       .join("\n");
 
-    // Step 1: Extract user graph
     const extractPrompt = `あなたは思考構造分析の専門家です。
 以下のAI面接の会話ログを分析して、受験者が表現した論理構造グラフをJSON形式で抽出してください。
-
 ドメイン: ${domain}
-
 会話ログ:
 ${convText.slice(0, 4000)}
-
-以下のJSON形式で出力してください:
-{
-  "nodes": [
-    {"id": "u1", "label": "受験者が言及した概念（8文字以内）", "node_type": "problem|cause|factor|solution|concept", "depth": 0}
-  ],
-  "edges": [
-    {"source": "u1", "target": "u2", "relation": "causes|leads_to|part_of|prevents|requires"}
-  ]
-}
-
-ルール:
-- 受験者が実際に言及した内容のみ含める（推測・補完はしない）
-- 因果関係・論理的なつながりが明示されたもののみエッジにする
-- labelは8文字以内
-
+{"nodes":[{"id":"u1","label":"概念（8文字以内）","node_type":"problem|cause|factor|solution|concept","depth":0}],"edges":[{"source":"u1","target":"u2","relation":"causes|leads_to|part_of|prevents|requires"}]}
 JSONのみ出力。`;
 
-    const extractMsg = await callLLM({
-      provider,
-      apiKey,
-      messages: [{ role: "user", content: extractPrompt }],
-      maxTokens: 1500,
-    });
+    const extractMsg = await callLLM({ provider, apiKey, messages: [{ role: "user", content: extractPrompt }], maxTokens: 1500 });
     const userGraph = extractJSON(extractMsg.text) as LogicGraph;
 
-    // Step 2: Score
-    const idealSummary = {
-      nodes: idealGraph.nodes.map(n => ({ id: n.id, label: n.label, type: n.node_type, depth: n.depth })),
-      edges: idealGraph.edges.map(e => ({ src: e.source, tgt: e.target, rel: e.relation })),
+    const idealSummary = { nodes: idealGraph.nodes.map(n => ({ id: n.id, label: n.label, type: n.node_type, depth: n.depth })), edges: idealGraph.edges.map(e => ({ src: e.source, tgt: e.target, rel: e.relation })) };
+    const userSummary = { nodes: (userGraph.nodes || []).map(n => ({ id: n.id, label: n.label, type: n.node_type, depth: n.depth })), edges: (userGraph.edges || []).map(e => ({ src: e.source, tgt: e.target, rel: e.relation })) };
+
+    const scorePrompt = `あなたは思考力評価の専門家です。研修ドメイン: ${domain}
+【理想グラフ】${JSON.stringify(idealSummary)}
+【受験者グラフ】${JSON.stringify(userSummary)}
+4観点でスコアリングしJSON返却:
+{"knowledge_fidelity":75,"structural_integrity":60,"hypothesis_generation":40,"thinking_depth":55,"total_score":60,"matched_concepts":["概念A"],"missing_concepts":["概念B"],"unique_insights":["視点X"],"key_feedback":"フィードバック","strength":"強み","improvement":"改善点"}
+total_score = 0.2×kf + 0.35×si + 0.25×hg + 0.2×td。JSONのみ出力。`;
+
+    const scoreMsg = await callLLM({ provider, apiKey, messages: [{ role: "user", content: scorePrompt }], maxTokens: 1000 });
+    const scores = extractJSON(scoreMsg.text) as {
+      knowledge_fidelity: number; structural_integrity: number;
+      hypothesis_generation: number; thinking_depth: number; total_score: number;
+      matched_concepts?: string[]; missing_concepts?: string[];
+      unique_insights?: string[]; key_feedback?: string; strength?: string; improvement?: string;
     };
-    const userSummary = {
-      nodes: (userGraph.nodes || []).map(n => ({ id: n.id, label: n.label, type: n.node_type, depth: n.depth })),
-      edges: (userGraph.edges || []).map(e => ({ src: e.source, tgt: e.target, rel: e.relation })),
-    };
 
-    const scorePrompt = `あなたは思考力評価の専門家です。
-研修ドメイン: ${domain}
-
-【理想グラフ】
-${JSON.stringify(idealSummary, null, 2)}
-
-【受験者グラフ】
-${JSON.stringify(userSummary, null, 2)}
-
-以下の4つの観点でスコアリングし、JSON形式で返してください:
-
-1. **概念理解度 (knowledge_fidelity)**: 重要概念の網羅性・正確性 (0-100)
-2. **構造整合度 (structural_integrity)**: 因果関係・論理構造の一致度 (0-100)
-3. **仮説生成力 (hypothesis_generation)**: 理想グラフにない独自の視点の妥当性 (0-100)
-4. **思考深度 (thinking_depth)**: 根本原因への到達度・深さ (0-100)
-
-JSON形式:
-{
-  "knowledge_fidelity": 75,
-  "structural_integrity": 60,
-  "hypothesis_generation": 40,
-  "thinking_depth": 55,
-  "total_score": 60,
-  "matched_concepts": ["概念A", "概念B"],
-  "missing_concepts": ["概念C", "概念D"],
-  "unique_insights": ["独自の視点X"],
-  "key_feedback": "3文以内の核心的フィードバック（日本語）",
-  "strength": "最大の強み（1文）",
-  "improvement": "最優先の改善点（1文）"
-}
-
-total_scoreは 0.2×knowledge_fidelity + 0.35×structural_integrity + 0.25×hypothesis_generation + 0.2×thinking_depth で計算。
-JSONのみ出力。`;
-
-    const scoreMsg = await await callLLM({
-      provider,
-      apiKey,
-      messages: [{ role: "user", content: scorePrompt }],
-      maxTokens: 1000,
-    });
-    const scores = extractJSON(scoreMsg.text);
+    // Save to Supabase if authenticated
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const total = scores.total_score ?? 0;
+        const grade = total >= 90 ? "S" : total >= 75 ? "A" : total >= 60 ? "B" : total >= 45 ? "C" : "D";
+        await supabase.from("sessions").insert({
+          user_id: user.id,
+          topic: topic || domain,
+          mode: (mode as "whynot" | "vocabulary" | "concept" | "procedure") || "concept",
+          status: "completed",
+          score_knowledge_fidelity: scores.knowledge_fidelity,
+          score_structural_integrity: scores.structural_integrity,
+          score_hypothesis_generation: scores.hypothesis_generation,
+          score_thinking_depth: scores.thinking_depth,
+          score_total: scores.total_score,
+          message_count: conversation.length,
+          key_concepts: scores.matched_concepts || [],
+          missing_concepts: scores.missing_concepts || [],
+          unique_insights: scores.unique_insights || [],
+          ai_feedback: scores.key_feedback || null,
+          grade,
+          messages: conversation as unknown as Record<string, unknown>[],
+        });
+        // Upsert learned concepts to knowledge graph
+        for (const concept of (scores.matched_concepts || [])) {
+          await supabase.from("knowledge_nodes").upsert(
+            { user_id: user.id, label: concept, node_type: "concept", confidence: 0.9 },
+            { onConflict: "user_id,label", ignoreDuplicates: false }
+          );
+        }
+      }
+    } catch (saveErr) {
+      console.warn("Supabase save skipped:", saveErr);
+    }
 
     return NextResponse.json({ userGraph, scores });
   } catch (e: unknown) {
@@ -116,5 +101,4 @@ JSONのみ出力。`;
   }
 }
 
-// ─── CORS Preflight ──────────────────────────────────────────
 export async function OPTIONS() { return corsResponse(); }
