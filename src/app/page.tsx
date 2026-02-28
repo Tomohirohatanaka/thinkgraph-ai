@@ -68,25 +68,55 @@ function detectProviderLabel(key: string): { label: string; color: string; place
   return { label: "APIキー未設定", color: "#bbb", placeholder: "sk-ant-... / sk-... / AIza... / aws:..." };
 }
 
-// ─── Storage ──────────────────────────────────────────────────
+// ─── Storage（防御的バージョン v2）─────────────────────────────
+// データ構造バリデーション + 破損時自動クリア + save時のquota超過防御
 function loadProfile(): ProfileEntry[] {
   if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem("tg_profile") || "[]"); } catch { return []; }
+  try {
+    const raw = localStorage.getItem("tg_profile");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) { localStorage.removeItem("tg_profile"); return []; }
+    return parsed.filter((e: unknown) =>
+      e && typeof e === "object" && "id" in e && "score" in e && "title" in e
+    ) as ProfileEntry[];
+  } catch { localStorage.removeItem("tg_profile"); return []; }
 }
 function saveProfileEntry(e: ProfileEntry) {
-  const arr = loadProfile(); arr.unshift(e);
-  localStorage.setItem("tg_profile", JSON.stringify(arr.slice(0, 100)));
+  try {
+    const arr = loadProfile(); arr.unshift(e);
+    localStorage.setItem("tg_profile", JSON.stringify(arr.slice(0, 100)));
+  } catch { /* quota超過等 */ }
 }
 function loadChar(): Character | null {
   if (typeof window === "undefined") return null;
-  try { const s = localStorage.getItem("tg_char"); return s ? JSON.parse(s) : null; } catch { return null; }
+  try {
+    const s = localStorage.getItem("tg_char");
+    if (!s) return null;
+    const parsed = JSON.parse(s);
+    if (!parsed || typeof parsed !== "object" || !parsed.id || !parsed.name || !parsed.emoji) {
+      localStorage.removeItem("tg_char"); return null;
+    }
+    if (parsed.growth_stages && !Array.isArray(parsed.growth_stages)) parsed.growth_stages = [];
+    return parsed as Character;
+  } catch { localStorage.removeItem("tg_char"); return null; }
 }
-function saveChar(c: Character) { localStorage.setItem("tg_char", JSON.stringify(c)); }
+function saveChar(c: Character) {
+  try { localStorage.setItem("tg_char", JSON.stringify(c)); } catch {}
+}
 function loadGraph(): Record<string, unknown> | null {
   if (typeof window === "undefined") return null;
-  try { const s = localStorage.getItem("tg_graph"); return s ? JSON.parse(s) : null; } catch { return null; }
+  try {
+    const s = localStorage.getItem("tg_graph");
+    if (!s) return null;
+    const parsed = JSON.parse(s);
+    if (!parsed || typeof parsed !== "object") { localStorage.removeItem("tg_graph"); return null; }
+    return parsed as Record<string, unknown>;
+  } catch { localStorage.removeItem("tg_graph"); return null; }
 }
-function saveGraph(g: Record<string, unknown>) { localStorage.setItem("tg_graph", JSON.stringify(g)); }
+function saveGraph(g: Record<string, unknown>) {
+  try { localStorage.setItem("tg_graph", JSON.stringify(g)); } catch {}
+}
 
 // ─── Stage helpers ────────────────────────────────────────────
 function stageLabel(char: Character, n: number): string {
@@ -612,35 +642,48 @@ export default function App() {
   const cc = char?.color || "#FF6B6B";
   const userTurns = turns.filter(t => t.role === "user").length;
 
-  // ── Init ────────────────────────────────────────────────────
+  // ── Init（防御的バージョン）──────────────────────────────────
   useEffect(() => {
-    const k = localStorage.getItem("tg_apikey") || "";
-    setApiKey(k); setApiInput(k);
-    setProfile(loadProfile());
-    const saved = loadChar();
-    const savedGraph = loadGraph();
-    if (savedGraph) setKnowledgeGraph(savedGraph);
-    if (saved) {
-      setChar(saved);
-    } else {
-      // デフォルトキャラをセット
+    try {
+      const k = localStorage.getItem("tg_apikey") || "";
+      setApiKey(k); setApiInput(k);
+    } catch { /* localStorage アクセス失敗 */ }
+
+    try { setProfile(loadProfile()); } catch { setProfile([]); }
+
+    try {
+      const saved = loadChar();
+      const savedGraph = loadGraph();
+      if (savedGraph) setKnowledgeGraph(savedGraph);
+      if (saved) {
+        setChar(saved);
+      } else {
+        fetch("/api/character")
+          .then(r => r.json())
+          .then(d => { if (d.character) { setChar(d.character); saveChar(d.character); } })
+          .catch(() => {});
+      }
+    } catch {
       fetch("/api/character")
         .then(r => r.json())
-        .then(d => {
-          if (d.character) { setChar(d.character); saveChar(d.character); }
-        })
+        .then(d => { if (d.character) { setChar(d.character); saveChar(d.character); } })
         .catch(() => {});
     }
+
     // 認証ユーザー確認
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setAuthUser({ email: user.email || "", name: user.user_metadata?.full_name || user.email || "" });
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) setAuthUser({ email: session.user.email || "", name: session.user.user_metadata?.full_name || session.user.email || "" });
-      else setAuthUser(null);
-    });
-    return () => subscription.unsubscribe();
+    let subscription: { unsubscribe: () => void } | null = null;
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) setAuthUser({ email: user.email || "", name: user.user_metadata?.full_name || user.email || "" });
+      }).catch(() => {});
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) setAuthUser({ email: session.user.email || "", name: session.user.user_metadata?.full_name || session.user.email || "" });
+        else setAuthUser(null);
+      });
+      subscription = data.subscription;
+    } catch { /* Supabase初期化失敗時はログインなしで動作 */ }
+    return () => { subscription?.unsubscribe(); };
   }, []);
 
   useEffect(() => {
