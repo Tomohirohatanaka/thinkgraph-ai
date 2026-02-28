@@ -965,7 +965,20 @@ export default function App() {
       const reader = new FileReader();
       reader.onload = () => {
         const b64 = (reader.result as string).split(",")[1];
-        setFileData({ name: f.name, base64: b64, mimeType: f.type || "application/octet-stream" });
+        // MIMEタイプを正確に設定（画像対応）
+        let mimeType = f.type;
+        if (!mimeType || mimeType === "application/octet-stream") {
+          if (name.endsWith(".pdf")) mimeType = "application/pdf";
+          else if (name.endsWith(".docx")) mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          else if (name.endsWith(".xlsx")) mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+          else if (name.endsWith(".pptx")) mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+          else if (name.endsWith(".jpg") || name.endsWith(".jpeg")) mimeType = "image/jpeg";
+          else if (name.endsWith(".png")) mimeType = "image/png";
+          else if (name.endsWith(".gif")) mimeType = "image/gif";
+          else if (name.endsWith(".webp")) mimeType = "image/webp";
+          else mimeType = "application/octet-stream";
+        }
+        setFileData({ name: f.name, base64: b64, mimeType });
         setFileContent("");
       };
       reader.readAsDataURL(f);
@@ -1467,7 +1480,7 @@ export default function App() {
                       )}
 
                       {/* ファイル添付 */}
-                      <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv" onChange={handleFile} style={{ display: "none" }} />
+                      <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.jpg,.jpeg,.png,.gif,.webp" onChange={handleFile} style={{ display: "none" }} />
                       {(fileContent || fileData) && fileInfo && (
                         <div style={{ fontSize: 12, color: "#4ECDC4", padding: "0.5rem 0.75rem", background: "#f0fffe", borderRadius: 10, marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span>✓ {fileInfo.name}（{(fileInfo.size / 1024).toFixed(1)} KB）</span>
@@ -1478,7 +1491,7 @@ export default function App() {
                       {/* 対応フォーマット */}
                       {inputMode !== "text" && !inputText.trim() && (
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: "0.4rem" }}>
-                          {["YouTube", "Web", "note", "Qiita", "Zenn", "PDF", "DOCX", "XLSX", "PPTX", "TXT"].map(f => (
+                          {["YouTube", "Web", "note", "Qiita", "Zenn", "PDF", "DOCX", "XLSX", "PPTX", "TXT", "JPG", "PNG"].map(f => (
                             <span key={f} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 100, background: "#f5f5f5", color: "#aaa" }}>{f}</span>
                           ))}
                         </div>
