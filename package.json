@@ -1,0 +1,36 @@
+{
+  "name": "thinkgraph-ai",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@tailwindcss/postcss": "^4.2.0",
+    "cheerio": "^1.2.0",
+    "d3": "^7.9.0",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.11.0",
+    "next": "^16.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-force-graph-2d": "^1.29.1",
+    "xlsx": "^0.18.5",
+    "youtube-transcript": "^1.2.1"
+  },
+  "devDependencies": {
+    "@types/dom-speech-recognition": "^0.0.7",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.4",
+    "postcss": "^8",
+    "tailwindcss": "^4.2.0",
+    "typescript": "^5"
+  }
+}

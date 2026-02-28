@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ThinkGraph AI — 思考構造定量化エンジン</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Instrument+Sans:wght@300;400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #06060c;
+  --s1: #0e0e18;
+  --s2: #161622;
+  --border: #1e1e30;
+  --border2: #2a2a40;
+  --ink: #5d5de8;
+  --ink2: #9b8cf8;
+  --ink3: #c4b8ff;
+  --green: #2dd4a0;
+  --amber: #f5a623;
+  --red: #f04848;
+  --text: #dde1f0;
+  --muted: #5a607a;
+  --subtle: #2a2f42;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Instrument Sans', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Noise texture overlay ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 0;
+  opacity: 0.35;
+}
+
+/* ── Grid bg ── */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(93,93,232,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(93,93,232,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none; z-index: 0;
+}
+
+/* ── Layout ── */
+#app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ── Header ── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.25rem 2.5rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(6,6,12,0.85);
+  backdrop-filter: blur(12px);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.15rem; font-weight: 800;
+  background: linear-gradient(135deg, #5d5de8, #9b8cf8, #c4b8ff);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  letter-spacing: -0.01em;
+}
+.logo-sub {
+  font-size: 0.65rem; color: var(--muted);
+  letter-spacing: 0.12em; text-transform: uppercase;
+  margin-top: 0.1rem;
+}
+.step-track {
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.step-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border2); transition: all 0.3s;
+}
+.step-dot.active { background: var(--ink); box-shadow: 0 0 10px var(--ink); }
+.step-dot.done { background: var(--green); }
+.step-line { width: 28px; height: 1px; background: var(--border2); transition: all 0.3s; }
+.step-line.done { background: var(--green); }
+
+/* ── Main ── */
+main { flex: 1; padding: 2.5rem; max-width: 1300px; margin: 0 auto; width: 100%; }
+
+/* ── Panels ── */
+.panel { display: none; animation: fadeUp 0.4s ease; }
+.panel.active { display: block; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.75rem;
+}
+.card-glow {
+  background: linear-gradient(135deg, rgba(93,93,232,0.06), rgba(155,140,248,0.03));
+  border: 1px solid rgba(93,93,232,0.2);
+  border-radius: 14px;
+  padding: 1.75rem;
+  position: relative;
+  overflow: hidden;
+}
+.card-glow::before {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(circle at 30% 30%, rgba(93,93,232,0.04), transparent 60%);
+  pointer-events: none;
+}
+
+/* ── Typography ── */
+.heading-xl {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800; line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.heading-lg {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.4rem; font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.heading-sm {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.9rem; font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.label {
+  font-size: 0.67rem; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted);
+}
+.accent-text {
+  background: linear-gradient(135deg, var(--ink2), var(--ink3));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-family: 'Syne', sans-serif; font-size: 0.82rem; font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.7rem 1.6rem; border-radius: 8px;
+  border: none; cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary {
+  background: var(--ink); color: #fff;
+  box-shadow: 0 0 20px rgba(93,93,232,0.25);
+}
+.btn-primary:hover { background: #4a4ad4; transform: translateY(-1px); box-shadow: 0 4px 24px rgba(93,93,232,0.35); }
+.btn-primary:disabled { background: var(--subtle); color: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-ghost {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border2);
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--ink); }
+
+/* ── Inputs ── */
+input[type="password"], input[type="text"], textarea, select {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 0.88rem;
+  padding: 0.75rem 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--ink); }
+input::placeholder, textarea::placeholder { color: var(--muted); }
+select option { background: var(--s2); }
+label.field-label {
+  display: block;
+  font-size: 0.72rem; font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 0.5rem;
+}
+
+/* ── Grid layouts ── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.25rem; }
+.grid-3-2 { display: grid; grid-template-columns: 3fr 2fr; gap: 1.5rem; }
+
+/* ── Step 0: Landing ── */
+.hero { text-align: center; padding: 4rem 0 2rem; }
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  background: rgba(93,93,232,0.1); border: 1px solid rgba(93,93,232,0.25);
+  border-radius: 20px; padding: 0.35rem 0.9rem;
+  font-size: 0.72rem; font-weight: 500; color: var(--ink3);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 1.5rem;
+}
+.hero-badge::before { content: '●'; color: var(--green); font-size: 0.5rem; }
+
+.features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 2rem 0; }
+.feature-card {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+.feature-card:hover { border-color: var(--border2); }
+.feature-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: rgba(93,93,232,0.12); border: 1px solid rgba(93,93,232,0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; margin-bottom: 0.75rem;
+}
+.api-setup { max-width: 440px; margin: 0 auto 1.5rem; }
+
+/* ── Step 1: Upload ── */
+.upload-zone {
+  border: 2px dashed var(--border2);
+  border-radius: 12px; padding: 2rem;
+  text-align: center; cursor: pointer;
+  transition: all 0.2s;
+}
+.upload-zone:hover, .upload-zone.dragover { border-color: var(--ink); background: rgba(93,93,232,0.04); }
+.upload-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+#file-input { display: none; }
+
+.demo-badge {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.25);
+  border-radius: 6px; padding: 0.3rem 0.7rem;
+  font-size: 0.72rem; color: var(--amber);
+}
+
+/* ── Step 2: Interview ── */
+.interview-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 1.5rem;
+  height: calc(100vh - 160px);
+  min-height: 500px;
+}
+.chat-panel { display: flex; flex-direction: column; }
+.chat-messages {
+  flex: 1; overflow-y: auto;
+  padding: 1rem; scroll-behavior: smooth;
+}
+.chat-messages::-webkit-scrollbar { width: 4px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.msg { margin-bottom: 1rem; animation: msgIn 0.3s ease; }
+@keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.msg-ai .bubble {
+  background: var(--s2); border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 3px;
+  padding: 0.85rem 1rem; max-width: 80%;
+  font-size: 0.88rem; line-height: 1.55;
+}
+.msg-user { display: flex; justify-content: flex-end; }
+.msg-user .bubble {
+  background: rgba(93,93,232,0.12); border: 1px solid rgba(93,93,232,0.2);
+  border-radius: 12px 12px 3px 12px;
+  padding: 0.85rem 1rem; max-width: 80%;
+  font-size: 0.88rem; line-height: 1.55;
+}
+.msg-role {
+  font-size: 0.62rem; font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 0.3rem;
+}
+.msg-user .msg-role { text-align: right; }
+
+.chat-input-area {
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--s1);
+  border-radius: 0 0 14px 14px;
+}
+.chat-input-row { display: flex; gap: 0.75rem; align-items: flex-end; }
+.chat-input-row textarea { resize: none; min-height: 48px; max-height: 120px; flex: 1; }
+
+.side-panel { display: flex; flex-direction: column; gap: 1rem; }
+.turn-progress {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 1.25rem;
+}
+.progress-bar {
+  background: var(--s2); border-radius: 4px; height: 6px;
+  overflow: hidden; margin: 0.75rem 0;
+}
+.progress-fill {
+  height: 100%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--ink), var(--ink2));
+  transition: width 0.4s ease;
+}
+
+/* ── Graph SVG ── */
+.graph-container {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+  position: relative;
+}
+.graph-container svg { display: block; width: 100%; }
+.graph-title {
+  position: absolute; top: 0.75rem; left: 1rem;
+  font-size: 0.67rem; font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── Step 3: Results ── */
+.results-top { display: grid; grid-template-columns: 200px 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+
+.score-ring-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.score-ring-svg { width: 160px; height: 160px; }
+
+.score-bars { display: flex; flex-direction: column; gap: 1rem; }
+.score-bar-row { display: flex; flex-direction: column; gap: 0.3rem; }
+.score-bar-head { display: flex; justify-content: space-between; font-size: 0.78rem; }
+.score-bar-track { background: var(--s2); border-radius: 3px; height: 5px; overflow: hidden; }
+.score-bar-fill { height: 100%; border-radius: 3px; transition: width 1s cubic-bezier(0.4,0,0.2,1); }
+
+.feedback-box { display: flex; flex-direction: column; gap: 0.75rem; }
+.feedback-main {
+  background: rgba(93,93,232,0.06); border: 1px solid rgba(93,93,232,0.15);
+  border-radius: 10px; padding: 1rem;
+  font-size: 0.87rem; line-height: 1.6;
+}
+.feedback-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.feedback-card { border-radius: 10px; padding: 0.85rem; font-size: 0.82rem; }
+.feedback-card.strength {
+  background: rgba(45,212,160,0.06); border: 1px solid rgba(45,212,160,0.18); color: var(--text);
+}
+.feedback-card.improve {
+  background: rgba(245,166,35,0.06); border: 1px solid rgba(245,166,35,0.18); color: var(--text);
+}
+.feedback-card .label { margin-bottom: 0.4rem; }
+.feedback-card.strength .label { color: var(--green); }
+.feedback-card.improve .label { color: var(--amber); }
+
+.concept-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+.chip {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  border-radius: 20px; padding: 0.25rem 0.65rem;
+  font-size: 0.72rem; font-family: 'Syne', sans-serif; font-weight: 600;
+}
+.chip-ok { background: rgba(45,212,160,0.1); border: 1px solid rgba(45,212,160,0.25); color: var(--green); }
+.chip-miss { background: rgba(240,72,72,0.08); border: 1px solid rgba(240,72,72,0.2); color: #f87171; }
+.chip-unique { background: rgba(93,93,232,0.1); border: 1px solid rgba(93,93,232,0.25); color: var(--ink3); }
+
+.graphs-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.graph-legend { display: flex; gap: 1rem; flex-wrap: wrap; padding: 0.5rem 1rem; font-size: 0.72rem; color: var(--muted); }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 0.3rem; vertical-align: middle; }
+
+/* ── Loading ── */
+.loading-bar {
+  position: fixed; top: 0; left: 0; height: 2px; z-index: 999;
+  background: linear-gradient(90deg, var(--ink), var(--ink2), var(--ink3));
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px var(--ink);
+}
+
+/* ── Spinner ── */
+.spinner {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--border2);
+  border-top-color: var(--ink);
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 2rem; right: 2rem;
+  background: var(--s2); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 0.85rem 1.25rem;
+  font-size: 0.85rem; z-index: 999;
+  transform: translateY(100px); opacity: 0;
+  transition: all 0.3s; max-width: 320px;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.error { border-color: rgba(240,72,72,0.4); color: #f87171; }
+.toast.success { border-color: rgba(45,212,160,0.3); color: var(--green); }
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .features-grid { grid-template-columns: 1fr; }
+  .interview-layout { grid-template-columns: 1fr; height: auto; }
+  .results-top { grid-template-columns: 1fr; }
+  .graphs-compare { grid-template-columns: 1fr; }
+  main { padding: 1.25rem; }
+  header { padding: 1rem 1.25rem; }
+}
+
+/* ── Radar chart ── */
+.radar-svg { width: 100%; max-width: 280px; margin: 0 auto; display: block; }
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- Loading bar -->
+<div class="loading-bar" id="loading-bar" style="width:0%"></div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Header -->
+<header>
+  <div>
+    <div class="logo">ThinkGraph AI</div>
+    <div class="logo-sub">思考構造定量化エンジン</div>
+  </div>
+  <div class="step-track" id="step-track">
+    <div class="step-dot active" id="sd0"></div>
+    <div class="step-line" id="sl01"></div>
+    <div class="step-dot" id="sd1"></div>
+    <div class="step-line" id="sl12"></div>
+    <div class="step-dot" id="sd2"></div>
+    <div class="step-line" id="sl23"></div>
+    <div class="step-dot" id="sd3"></div>
+  </div>
+</header>
+
+<main>
+
+<!-- ════════ PANEL 0: Setup ════════ -->
+<div class="panel active" id="panel-0">
+  <div class="hero">
+    <div class="hero-badge">MVP v1.0 — Anthropic Claude 搭載</div>
+    <h1 class="heading-xl">
+      思考の<span class="accent-text">構造</span>を<br>数値で可視化する
+    </h1>
+    <p style="color:var(--muted); margin: 1rem 0 2rem; font-size:0.95rem; max-width:520px; margin-left:auto; margin-right:auto; line-height:1.6;">
+      研修資料から理想論理グラフを自動生成し、AI面接を通じて受験者の思考構造を定量評価。製造業新入社員研修向けB2B SaaS。
+    </p>
+
+    <div class="api-setup">
+      <div class="card">
+        <label class="field-label">Anthropic API キー</label>
+        <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." autocomplete="off">
+        <p style="font-size:0.72rem; color:var(--muted); margin-top:0.6rem; line-height:1.5;">
+          キーは <a href="https://console.anthropic.com/" target="_blank" style="color:var(--ink3);">console.anthropic.com</a> で取得。ブラウザ内のみで使用され外部には送信されません。
+        </p>
+        <div style="margin-top:1.25rem; display:flex; gap:0.75rem; justify-content:center;">
+          <button class="btn btn-primary" onclick="startSetup()" id="start-btn">
+            開始する →
+          </button>
+          <button class="btn btn-ghost" onclick="startDemo()">
+            デモを見る
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">📄</div>
+      <div class="heading-sm" style="margin-bottom:0.5rem;">研修資料 → 理想グラフ</div>
+      <p style="font-size:0.82rem; color:var(--muted); line-height:1.55;">PDFやテキストをアップロードすると、なぜなぜ分析・QCストーリーの論理構造を自動でグラフ化。</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <div class="heading-sm" style="margin-bottom:0.5rem;">AI深掘り面接</div>
+      <p style="font-size:0.82rem; color:var(--muted); line-height:1.55;">AIが因果関係・仮説・反証を順次問いかけ、受験者の思考構造を自然言語から抽出。</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <div class="heading-sm" style="margin-bottom:0.5rem;">4軸スコアリング</div>
+      <p style="font-size:0.82rem; color:var(--muted); line-height:1.55;">概念理解・構造整合・仮説生成・思考深度を定量評価。理想グラフとの視覚的比較も提供。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ PANEL 1: Upload ════════ -->
+<div class="panel" id="panel-1">
+  <div style="max-width:800px; margin:0 auto;">
+    <div style="margin-bottom:1.75rem;">
+      <div class="label" style="margin-bottom:0.5rem;">ステップ 1 / 3</div>
+      <h2 class="heading-lg">研修資料をアップロード</h2>
+      <p style="color:var(--muted); font-size:0.85rem; margin-top:0.4rem;">PDFまたはテキストから理想論理グラフを自動生成します</p>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:1.5rem;">
+      <div>
+        <label class="field-label">研修ドメイン</label>
+        <select id="domain-select">
+          <option value="QC・問題解決（なぜなぜ分析）">QC・問題解決（なぜなぜ分析）</option>
+          <option value="製品品質管理">製品品質管理</option>
+          <option value="安全教育・リスクアセスメント">安全教育・リスクアセスメント</option>
+          <option value="工程改善・カイゼン">工程改善・カイゼン</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">受験者名（任意）</label>
+        <input type="text" id="candidate-name" placeholder="例：山田 太郎">
+      </div>
+    </div>
+
+    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()" ondragover="handleDrag(event, true)" ondragleave="handleDrag(event, false)" ondrop="handleDrop(event)">
+      <div class="upload-icon">📋</div>
+      <div style="font-weight:500; margin-bottom:0.4rem;">ファイルをドロップ、またはクリックして選択</div>
+      <div style="font-size:0.78rem; color:var(--muted);">PDF / TXT — 最大 5MB</div>
+      <input type="file" id="file-input" accept=".pdf,.txt" onchange="handleFileSelect(event)">
+    </div>
+
+    <div style="text-align:center; margin:1rem 0; color:var(--muted); font-size:0.8rem;">または</div>
+
+    <label class="field-label">研修内容をテキストで貼り付け</label>
+    <textarea id="training-text" rows="8" placeholder="研修テキスト、マニュアル、教材の内容をここに貼り付けてください..."></textarea>
+
+    <div id="file-name" style="font-size:0.78rem; color:var(--green); margin-top:0.5rem; display:none;"></div>
+    <div id="demo-notice" style="margin-top:0.75rem; display:none;">
+      <span class="demo-badge">⚡ デモモード: なぜなぜ分析サンプルを使用します</span>
+    </div>
+
+    <div style="margin-top:1.5rem; display:flex; gap:0.75rem; align-items:center;">
+      <button class="btn btn-primary" onclick="generateIdealGraph()" id="gen-btn">
+        理想グラフを生成 →
+      </button>
+      <button class="btn btn-ghost" onclick="activateDemoMode()">デモ資料を使う</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ PANEL 2: Interview ════════ -->
+<div class="panel" id="panel-2">
+  <div class="interview-layout">
+
+    <!-- Chat -->
+    <div class="card chat-panel">
+      <div style="padding:0 0 0.75rem; border-bottom:1px solid var(--border); margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="label">AI 面接</div>
+          <div class="heading-sm" id="chat-domain-label" style="margin-top:0.2rem;"></div>
+        </div>
+        <div id="turn-badge" style="font-size:0.72rem; color:var(--muted); font-family:'Syne',sans-serif;"></div>
+      </div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-area">
+        <div class="chat-input-row">
+          <textarea id="user-input" placeholder="回答を入力... (Shift+Enter で改行、Enter で送信)" rows="2" onkeydown="handleChatKey(event)"></textarea>
+          <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">送信</button>
+        </div>
+        <div id="chat-status" style="font-size:0.72rem; color:var(--muted); margin-top:0.5rem; height:1rem;"></div>
+      </div>
+    </div>
+
+    <!-- Side panel -->
+    <div class="side-panel">
+      <!-- Turn progress -->
+      <div class="turn-progress">
+        <div class="label">面接進捗</div>
+        <div class="progress-bar" style="margin:0.75rem 0 0.4rem;">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:var(--muted);">
+          <span id="turn-count">0 / 8 ターン</span>
+          <span id="turn-phase">自由回答フェーズ</span>
+        </div>
+        <div id="finish-btn-wrap" style="margin-top:1rem; display:none;">
+          <button class="btn btn-primary" style="width:100%;" onclick="finishInterview()">
+            スコアを算出 →
+          </button>
+        </div>
+      </div>
+
+      <!-- Ideal graph -->
+      <div class="graph-container" style="flex:1; min-height:280px;">
+        <div class="graph-title">理想グラフ</div>
+        <svg id="ideal-graph-svg" height="280"></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ PANEL 3: Results ════════ -->
+<div class="panel" id="panel-3">
+  <div style="margin-bottom:1.5rem; display:flex; justify-content:space-between; align-items:flex-start;">
+    <div>
+      <div class="label" style="margin-bottom:0.4rem;">評価完了</div>
+      <h2 class="heading-lg">思考構造スコアリング結果</h2>
+      <div id="result-meta" style="font-size:0.8rem; color:var(--muted); margin-top:0.3rem;"></div>
+    </div>
+    <button class="btn btn-ghost" onclick="resetAll()">新しい面接を開始</button>
+  </div>
+
+  <!-- Score overview -->
+  <div class="results-top">
+    <!-- Ring -->
+    <div class="card score-ring-wrap">
+      <svg class="score-ring-svg" viewBox="0 0 160 160" id="score-ring-svg">
+        <circle cx="80" cy="80" r="65" fill="none" stroke="var(--s2)" stroke-width="12"/>
+        <circle cx="80" cy="80" r="65" fill="none" stroke="var(--ink)" stroke-width="12"
+          stroke-dasharray="408.4"
+          stroke-dashoffset="408.4"
+          stroke-linecap="round"
+          transform="rotate(-90 80 80)"
+          id="score-ring-fill" style="transition: stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)"/>
+      </svg>
+      <div style="text-align:center; margin-top:0.5rem;">
+        <div id="score-num" style="font-family:'Syne',sans-serif; font-size:2.5rem; font-weight:800; line-height:1;"></div>
+        <div class="label" style="margin-top:0.2rem;">総合スコア</div>
+        <div id="score-grade" style="margin-top:0.5rem; font-family:'Syne',sans-serif; font-size:0.8rem; font-weight:600; padding:0.25rem 0.75rem; border-radius:20px; display:inline-block;"></div>
+      </div>
+    </div>
+
+    <!-- Bars + Radar -->
+    <div class="card">
+      <div class="label" style="margin-bottom:1rem;">4軸スコア</div>
+      <div class="score-bars" id="score-bars"></div>
+    </div>
+
+    <!-- Feedback -->
+    <div class="card feedback-box">
+      <div class="label" style="margin-bottom:0.75rem;">フィードバック</div>
+      <div class="feedback-main" id="feedback-main"></div>
+      <div class="feedback-row">
+        <div class="feedback-card strength">
+          <div class="label">強み</div>
+          <div id="feedback-strength"></div>
+        </div>
+        <div class="feedback-card improve">
+          <div class="label">改善点</div>
+          <div id="feedback-improve"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Concepts -->
+  <div class="card" style="margin-bottom:1.5rem;">
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1.25rem;">
+      <div>
+        <div class="label" style="margin-bottom:0.5rem; color:var(--green);">✓ 理解できた概念</div>
+        <div class="concept-chips" id="chips-matched"></div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:0.5rem; color:#f87171;">✗ 欠落していた概念</div>
+        <div class="concept-chips" id="chips-missing"></div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:0.5rem; color:var(--ink3);">★ 独自の洞察</div>
+        <div class="concept-chips" id="chips-unique"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Graph comparison -->
+  <div class="graphs-compare">
+    <div class="graph-container" style="min-height:320px;">
+      <div class="graph-title">理想グラフ（研修資料より）</div>
+      <svg id="result-ideal-svg" height="320" style="width:100%;"></svg>
+    </div>
+    <div class="graph-container" style="min-height:320px;">
+      <div class="graph-title">受験者グラフ（面接回答より）— 緑=一致</div>
+      <svg id="result-user-svg" height="320" style="width:100%;"></svg>
+    </div>
+  </div>
+
+  <div class="graph-legend">
+    <span><span class="legend-dot" style="background:#f04848;"></span>問題</span>
+    <span><span class="legend-dot" style="background:#f97316;"></span>原因</span>
+    <span><span class="legend-dot" style="background:#eab308;"></span>要因</span>
+    <span><span class="legend-dot" style="background:#5d5de8;"></span>概念</span>
+    <span><span class="legend-dot" style="background:#22c55e;"></span>対策</span>
+    <span><span class="legend-dot" style="background:#2dd4a0;"></span>一致ノード</span>
+  </div>
+</div>
+
+</main>
+</div><!-- /#app -->
+
+<script>
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+const state = {
+  step: 0,
+  apiKey: '',
+  domain: 'QC・問題解決（なぜなぜ分析）',
+  candidateName: '',
+  trainingText: '',
+  idealGraph: null,
+  userGraph: null,
+  conversation: [],
+  scores: null,
+  turn: 0,
+  maxTurns: 8,
+  isDemo: false,
+  isLoading: false,
+};
+
+const DEMO_TEXT = `なぜなぜ分析（5Why分析）研修テキスト
+
+■ 目的
+製造現場で発生した問題の真因を特定し、再発防止策を立案するための問題解決手法。
+
+■ なぜなぜ分析の手順
+1. 問題の明確化：発生した現象を具体的・定量的に記述する
+2. 現象の層別：問題を「もれなく・だぶりなく」要因に分解する
+3. 第1のなぜ：なぜ問題が発生したか？直接原因を探る
+4. 第2〜5のなぜ：原因の原因を繰り返し追求
+5. 真因の特定：システム・管理・教育の欠陥にまで遡る
+6. 対策立案：真因を除去する具体的対策を立案
+7. 効果確認：対策実施後に問題が解消されたか検証
+8. 標準化・横展開：同類問題への適用と管理基準の更新
+
+■ よくある失敗パターン
+- 現象の記述が曖昧（「ミスが多い」ではなく具体的数値で記述する）
+- なぜが飛躍している（現象から真因を一気に結論付ける）
+- 人のせいにする（担当者の不注意→管理基準未整備まで掘る）
+- 対策が再発防止になっていない（応急処置で終わる）
+
+■ QCストーリーとの関係
+問題解決型QCストーリーにおいて、なぜなぜ分析は「要因解析」ステップで使用される。
+特性要因図（フィッシュボーン）と組み合わせることで多角的な要因分析が可能。
+
+■ 製造業における重要性
+品質不良・設備故障・労働災害などあらゆる問題に適用可能。
+真因まで到達することで、類似問題の予防と水平展開が実現できる。`;
+
+// ═══════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════
+function goStep(n) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(`panel-${n}`).classList.add('active');
+  state.step = n;
+  updateStepUI(n);
+  window.scrollTo(0, 0);
+}
+
+function updateStepUI(n) {
+  for (let i = 0; i < 4; i++) {
+    const dot = document.getElementById(`sd${i}`);
+    dot.classList.remove('active', 'done');
+    if (i < n) dot.classList.add('done');
+    if (i === n) dot.classList.add('active');
+  }
+  for (let i = 0; i < 3; i++) {
+    const line = document.getElementById(`sl${i}${i+1}`);
+    line.classList.toggle('done', i < n);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// STEP 0: Setup
+// ═══════════════════════════════════════════════
+function startSetup() {
+  const key = document.getElementById('api-key-input').value.trim();
+  if (!key.startsWith('sk-ant-')) {
+    showToast('有効なAPIキーを入力してください (sk-ant-...)', 'error');
+    return;
+  }
+  state.apiKey = key;
+  goStep(1);
+}
+
+function startDemo() {
+  state.apiKey = '';
+  state.isDemo = true;
+  goStep(1);
+  activateDemoMode();
+  showToast('デモモードで開始します', 'success');
+}
+
+// ═══════════════════════════════════════════════
+// STEP 1: Upload
+// ═══════════════════════════════════════════════
+function handleDrag(e, over) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.toggle('dragover', over);
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  handleDrag(e, false);
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) processFile(file);
+}
+
+function processFile(file) {
+  if (file.type === 'text/plain') {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      document.getElementById('training-text').value = e.target.result;
+      showFileName(file.name);
+    };
+    reader.readAsText(file);
+  } else if (file.type === 'application/pdf') {
+    showFileName(file.name + ' (テキスト抽出はサーバー側で処理します)');
+    // For demo, just note it
+    showToast('PDFは現在テキストモードのみ対応。内容をテキストで貼り付けてください。', 'error');
+  }
+}
+
+function showFileName(name) {
+  const el = document.getElementById('file-name');
+  el.textContent = '✓ ' + name;
+  el.style.display = 'block';
+}
+
+function activateDemoMode() {
+  document.getElementById('training-text').value = DEMO_TEXT;
+  document.getElementById('demo-notice').style.display = 'block';
+}
+
+async function generateIdealGraph() {
+  const text = document.getElementById('training-text').value.trim();
+  const domain = document.getElementById('domain-select').value;
+  const candidate = document.getElementById('candidate-name').value.trim();
+
+  state.domain = domain;
+  state.candidateName = candidate;
+
+  const trainingText = text || DEMO_TEXT;
+  if (!text) {
+    document.getElementById('demo-notice').style.display = 'block';
+  }
+  state.trainingText = trainingText;
+
+  setLoading(true, 'gen-btn', '生成中...');
+
+  try {
+    let graphData;
+
+    if (state.isDemo || !state.apiKey) {
+      // Embedded demo graph
+      graphData = getDemoIdealGraph();
+      await sleep(1200);
+    } else {
+      const res = await fetch('/api/generate-graph', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trainingText, domain, apiKey: state.apiKey }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      const data = await res.json();
+      graphData = data.graph;
+    }
+
+    state.idealGraph = graphData;
+    goStep(2);
+    initInterview();
+  } catch (err) {
+    showToast('グラフ生成エラー: ' + err.message, 'error');
+  } finally {
+    setLoading(false, 'gen-btn', '理想グラフを生成 →');
+  }
+}
+
+function getDemoIdealGraph() {
+  return {
+    nodes: [
+      { id: 'n1', label: '問題発生', node_type: 'problem', depth: 0 },
+      { id: 'n2', label: '現象の特定', node_type: 'concept', depth: 1 },
+      { id: 'n3', label: '第1のなぜ', node_type: 'cause', depth: 1 },
+      { id: 'n4', label: '直接原因', node_type: 'cause', depth: 2 },
+      { id: 'n5', label: '第2〜5のなぜ', node_type: 'factor', depth: 2 },
+      { id: 'n6', label: '真因特定', node_type: 'cause', depth: 3 },
+      { id: 'n7', label: '管理基準の欠如', node_type: 'factor', depth: 3 },
+      { id: 'n8', label: '対策立案', node_type: 'solution', depth: 4 },
+      { id: 'n9', label: '再発防止策', node_type: 'solution', depth: 4 },
+      { id: 'n10', label: '標準化', node_type: 'solution', depth: 4 },
+    ],
+    edges: [
+      { source: 'n1', target: 'n2', relation: 'leads_to' },
+      { source: 'n2', target: 'n3', relation: 'leads_to' },
+      { source: 'n3', target: 'n4', relation: 'leads_to' },
+      { source: 'n4', target: 'n5', relation: 'leads_to' },
+      { source: 'n5', target: 'n6', relation: 'leads_to' },
+      { source: 'n6', target: 'n7', relation: 'causes' },
+      { source: 'n7', target: 'n8', relation: 'leads_to' },
+      { source: 'n8', target: 'n9', relation: 'part_of' },
+      { source: 'n9', target: 'n10', relation: 'leads_to' },
+    ],
+  };
+}
+
+// ═══════════════════════════════════════════════
+// STEP 2: Interview
+// ═══════════════════════════════════════════════
+function initInterview() {
+  state.conversation = [];
+  state.turn = 0;
+
+  document.getElementById('chat-domain-label').textContent = state.domain;
+  document.getElementById('chat-messages').innerHTML = '';
+
+  // Draw ideal graph
+  renderGraph(state.idealGraph, 'ideal-graph-svg', 280, []);
+
+  // Opening message
+  const opening = getOpeningMessage();
+  addAIMessage(opening);
+  state.conversation.push({ role: 'user', content: '面接を開始してください。' });
+  state.conversation.push({ role: 'assistant', content: opening });
+  state.turn = 1;
+  updateTurnUI();
+}
+
+function getOpeningMessage() {
+  return `お疲れ様です。これから「${state.domain}」についての思考力評価を始めます。\n\nまず自由に教えてください。「${state.domain}」について、あなたが最も重要だと思うことは何ですか？`;
+}
+
+function handleChatKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+async function sendMessage() {
+  const input = document.getElementById('user-input');
+  const text = input.value.trim();
+  if (!text || state.isLoading) return;
+
+  input.value = '';
+  addUserMessage(text);
+  state.conversation.push({ role: 'user', content: text });
+  state.turn++;
+  updateTurnUI();
+
+  setLoading(true, 'send-btn', '...');
+  document.getElementById('chat-status').textContent = 'AI が考えています...';
+
+  try {
+    let response;
+    if (state.isDemo || !state.apiKey) {
+      response = getDemoInterviewResponse(state.turn);
+      await sleep(800);
+    } else {
+      const idealConcepts = state.idealGraph?.nodes?.map(n => n.label) || [];
+      const res = await fetch('/api/interview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation: state.conversation,
+          idealConcepts,
+          domain: state.domain,
+          turn: state.turn,
+          apiKey: state.apiKey,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      response = (await res.json()).response;
+    }
+
+    addAIMessage(response);
+    state.conversation.push({ role: 'assistant', content: response });
+  } catch (err) {
+    showToast('エラー: ' + err.message, 'error');
+  } finally {
+    setLoading(false, 'send-btn', '送信');
+    document.getElementById('chat-status').textContent = '';
+    updateTurnUI();
+  }
+}
+
+function getDemoInterviewResponse(turn) {
+  const responses = [
+    'なるほど、ありがとうございます。では、なぜなぜ分析において「真因」まで到達するために、何回「なぜ」を繰り返すべきだと思いますか？その理由も教えてください。',
+    '5回という回答が多いですが、実際の現場では何回でも良いとも言われています。「真因」に到達したと判断する基準は何だと思いますか？',
+    '興味深い視点ですね。では逆に、なぜなぜ分析でよく陥る「失敗パターン」について、具体例を挙げながら説明していただけますか？',
+    'その失敗パターンが起きてしまう根本的な理由は何だと思いますか？なぜなぜ分析で分析してみてください。',
+    '良い洞察です。では「対策」と「再発防止策」の違いを説明してください。なぜこの区別が重要なのでしょうか？',
+    '最後に、なぜなぜ分析の結果を「標準化・横展開」するとはどういうことですか？具体的な手順を教えてください。',
+    'ありがとうございました。十分な回答が得られました。スコアを算出してください。',
+  ];
+  return responses[Math.min(turn - 2, responses.length - 1)];
+}
+
+function updateTurnUI() {
+  const pct = Math.min((state.turn / state.maxTurns) * 100, 100);
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('turn-count').textContent = `${state.turn} / ${state.maxTurns} ターン`;
+
+  let phase = '自由回答フェーズ';
+  if (state.turn >= 3) phase = '深掘りフェーズ';
+  if (state.turn >= 5) phase = '仮説検証フェーズ';
+  if (state.turn >= 7) phase = '総括フェーズ';
+  document.getElementById('turn-phase').textContent = phase;
+  document.getElementById('turn-badge').textContent = `ターン ${state.turn}`;
+
+  const wrap = document.getElementById('finish-btn-wrap');
+  wrap.style.display = state.turn >= 6 ? 'block' : 'none';
+}
+
+function addAIMessage(text) {
+  const html = `<div class="msg msg-ai">
+    <div class="msg-role">AI 面接官</div>
+    <div class="bubble">${escHtml(text).replace(/\n/g, '<br>')}</div>
+  </div>`;
+  appendChat(html);
+}
+
+function addUserMessage(text) {
+  const html = `<div class="msg msg-user">
+    <div>
+      <div class="msg-role">あなた</div>
+      <div class="bubble">${escHtml(text).replace(/\n/g, '<br>')}</div>
+    </div>
+  </div>`;
+  appendChat(html);
+}
+
+function appendChat(html) {
+  const el = document.getElementById('chat-messages');
+  el.insertAdjacentHTML('beforeend', html);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function finishInterview() {
+  if (state.turn < 4) {
+    showToast('もう少し会話を続けてください（最低4ターン）', 'error');
+    return;
+  }
+
+  setLoading(true, null, '');
+  setLoadingBar(30);
+  document.getElementById('chat-status').textContent = '思考構造を解析中...';
+
+  try {
+    let scores, userGraph;
+
+    if (state.isDemo || !state.apiKey) {
+      await sleep(1500);
+      setLoadingBar(70);
+      await sleep(800);
+      const result = getDemoScores();
+      scores = result.scores;
+      userGraph = result.userGraph;
+    } else {
+      setLoadingBar(40);
+      const res = await fetch('/api/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idealGraph: state.idealGraph,
+          conversation: state.conversation,
+          domain: state.domain,
+          apiKey: state.apiKey,
+        }),
+      });
+      setLoadingBar(80);
+      if (!res.ok) throw new Error((await res.json()).error);
+      const data = await res.json();
+      scores = data.scores;
+      userGraph = data.userGraph;
+    }
+
+    state.scores = scores;
+    state.userGraph = userGraph;
+    setLoadingBar(100);
+    setTimeout(() => setLoadingBar(0), 500);
+    goStep(3);
+    renderResults();
+  } catch (err) {
+    showToast('スコア算出エラー: ' + err.message, 'error');
+    setLoadingBar(0);
+  } finally {
+    state.isLoading = false;
+    document.getElementById('chat-status').textContent = '';
+  }
+}
+
+function getDemoScores() {
+  return {
+    scores: {
+      knowledge_fidelity: 72,
+      structural_integrity: 65,
+      hypothesis_generation: 48,
+      thinking_depth: 58,
+      total_score: 63,
+      matched_concepts: ['問題発生', '第1のなぜ', '真因特定', '対策立案'],
+      missing_concepts: ['標準化', '横展開', '管理基準の欠如'],
+      unique_insights: ['現場観察の重要性'],
+      key_feedback: '問題の特定と直接原因の追求は理解できています。しかし「管理基準の欠如」という根本的な組織的要因への洞察が不足しています。再発防止のために標準化・横展開の重要性を深く理解することが次のステップです。',
+      strength: '問題の現象特定と初期因果関係の把握が明確で体系的',
+      improvement: '組織的・管理的な根本原因（管理基準・教育体制）への追求が不十分',
+    },
+    userGraph: {
+      nodes: [
+        { id: 'u1', label: '問題発生', node_type: 'problem', depth: 0 },
+        { id: 'u2', label: '現象の特定', node_type: 'concept', depth: 1 },
+        { id: 'u3', label: '直接原因', node_type: 'cause', depth: 2 },
+        { id: 'u4', label: 'なぜを繰返す', node_type: 'factor', depth: 2 },
+        { id: 'u5', label: '真因特定', node_type: 'cause', depth: 3 },
+        { id: 'u6', label: '対策立案', node_type: 'solution', depth: 4 },
+      ],
+      edges: [
+        { source: 'u1', target: 'u2', relation: 'leads_to' },
+        { source: 'u2', target: 'u3', relation: 'leads_to' },
+        { source: 'u3', target: 'u4', relation: 'leads_to' },
+        { source: 'u4', target: 'u5', relation: 'leads_to' },
+        { source: 'u5', target: 'u6', relation: 'leads_to' },
+      ],
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════
+// STEP 3: Results
+// ═══════════════════════════════════════════════
+function renderResults() {
+  const s = state.scores;
+  const total = s.total_score || 0;
+
+  // Meta
+  const name = state.candidateName || '受験者';
+  document.getElementById('result-meta').textContent =
+    `${name} — ${state.domain} — ${new Date().toLocaleDateString('ja-JP')}`;
+
+  // Score ring
+  const circumference = 408.4;
+  const offset = circumference - (total / 100) * circumference;
+  const ring = document.getElementById('score-ring-fill');
+  setTimeout(() => ring.style.strokeDashoffset = offset, 100);
+
+  const color = total >= 75 ? '#2dd4a0' : total >= 55 ? '#f5a623' : '#f04848';
+  ring.style.stroke = color;
+
+  document.getElementById('score-num').textContent = total;
+  document.getElementById('score-num').style.color = color;
+
+  const grade = total >= 75 ? 'A — 優秀' : total >= 55 ? 'B — 良好' : total >= 35 ? 'C — 要改善' : 'D — 要訓練';
+  const gradeEl = document.getElementById('score-grade');
+  gradeEl.textContent = grade;
+  gradeEl.style.color = color;
+  gradeEl.style.background = `${color}18`;
+  gradeEl.style.border = `1px solid ${color}35`;
+
+  // Bars
+  const bars = document.getElementById('score-bars');
+  bars.innerHTML = '';
+  const axes = [
+    { key: 'knowledge_fidelity', label: '概念理解度', color: '#5d5de8' },
+    { key: 'structural_integrity', label: '構造整合度', color: '#9b8cf8' },
+    { key: 'hypothesis_generation', label: '仮説生成力', color: '#22d3ee' },
+    { key: 'thinking_depth', label: '思考深度', color: '#2dd4a0' },
+  ];
+  axes.forEach(ax => {
+    const v = s[ax.key] || 0;
+    bars.innerHTML += `
+      <div class="score-bar-row">
+        <div class="score-bar-head">
+          <span style="color:var(--muted)">${ax.label}</span>
+          <span style="color:${ax.color}; font-family:'Syne',sans-serif; font-weight:600;">${v}</span>
+        </div>
+        <div class="score-bar-track">
+          <div class="score-bar-fill" style="background:${ax.color}; width:0%" data-target="${v}%"></div>
+        </div>
+      </div>`;
+  });
+  setTimeout(() => {
+    document.querySelectorAll('.score-bar-fill').forEach(el => {
+      el.style.width = el.dataset.target;
+    });
+  }, 100);
+
+  // Feedback
+  document.getElementById('feedback-main').textContent = s.key_feedback || '';
+  document.getElementById('feedback-strength').textContent = s.strength || '—';
+  document.getElementById('feedback-improve').textContent = s.improvement || '—';
+
+  // Chips
+  function renderChips(id, items, cls) {
+    document.getElementById(id).innerHTML =
+      (items || []).map(c => `<span class="chip ${cls}">${escHtml(c)}</span>`).join('');
+  }
+  renderChips('chips-matched', s.matched_concepts, 'chip-ok');
+  renderChips('chips-missing', s.missing_concepts, 'chip-miss');
+  renderChips('chips-unique', s.unique_insights, 'chip-unique');
+
+  // Graphs
+  const idealLabels = new Set((state.idealGraph?.nodes || []).map(n => n.label));
+  const userHighlight = (state.userGraph?.nodes || [])
+    .filter(n => idealLabels.has(n.label))
+    .map(n => n.id);
+
+  renderGraph(state.idealGraph, 'result-ideal-svg', 320, []);
+  renderGraph(state.userGraph, 'result-user-svg', 320, userHighlight);
+}
+
+function resetAll() {
+  Object.assign(state, {
+    step: 0, idealGraph: null, userGraph: null,
+    conversation: [], scores: null, turn: 0, isDemo: false,
+  });
+  goStep(1);
+  document.getElementById('chat-messages').innerHTML = '';
+  document.getElementById('training-text').value = '';
+  document.getElementById('demo-notice').style.display = 'none';
+  document.getElementById('file-name').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════
+// GRAPH RENDERING (D3)
+// ═══════════════════════════════════════════════
+const NODE_COLORS = {
+  problem: '#f04848',
+  cause: '#f97316',
+  factor: '#eab308',
+  solution: '#22c55e',
+  concept: '#5d5de8',
+};
+
+function renderGraph(graphData, svgId, height, highlightIds) {
+  const svgEl = document.getElementById(svgId);
+  if (!svgEl) return;
+  svgEl.innerHTML = '';
+  if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return;
+
+  const width = svgEl.parentElement.clientWidth || 400;
+  svgEl.setAttribute('height', height);
+  svgEl.setAttribute('width', width);
+
+  const svg = d3.select('#' + svgId);
+  const g = svg.append('g');
+
+  // Arrow marker
+  svg.append('defs').append('marker')
+    .attr('id', `arrow-${svgId}`)
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 20).attr('refY', 0)
+    .attr('markerWidth', 6).attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M0,-5L10,0L0,5')
+    .attr('fill', '#3a3a55');
+
+  const nodes = graphData.nodes.map(n => ({ ...n }));
+  const edges = graphData.edges.map(e => ({ ...e }));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(70).strength(0.8))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide(30));
+
+  const link = g.append('g').selectAll('line')
+    .data(edges).join('line')
+    .attr('stroke', '#2a2a40')
+    .attr('stroke-width', 1.5)
+    .attr('marker-end', `url(#arrow-${svgId})`);
+
+  const node = g.append('g').selectAll('g')
+    .data(nodes).join('g')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+  node.append('circle')
+    .attr('r', 18)
+    .attr('fill', d => {
+      if (highlightIds.includes(d.id)) return '#2dd4a0';
+      return NODE_COLORS[d.node_type] || '#5d5de8';
+    })
+    .attr('fill-opacity', 0.85)
+    .attr('stroke', d => highlightIds.includes(d.id) ? '#2dd4a0' : 'rgba(255,255,255,0.08)')
+    .attr('stroke-width', d => highlightIds.includes(d.id) ? 2 : 1);
+
+  node.append('text')
+    .text(d => d.label.length > 6 ? d.label.slice(0, 6) + '…' : d.label)
+    .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
+    .attr('font-size', '9px').attr('font-family', 'Instrument Sans, sans-serif')
+    .attr('fill', '#e2e8f0').attr('pointer-events', 'none');
+
+  node.append('title').text(d => d.label);
+
+  sim.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    node.attr('transform', d => `translate(${Math.max(20, Math.min(width-20, d.x))},${Math.max(20, Math.min(height-20, d.y))})`);
+  });
+
+  // Stop after settling
+  setTimeout(() => sim.stop(), 3000);
+}
+
+// ═══════════════════════════════════════════════
+// UI UTILS
+// ═══════════════════════════════════════════════
+function setLoading(on, btnId, text) {
+  state.isLoading = on;
+  if (btnId) {
+    const btn = document.getElementById(btnId);
+    if (btn) {
+      btn.disabled = on;
+      btn.innerHTML = on ? `<span class="spinner" style="width:14px;height:14px;border-width:1.5px;"></span> ${text}` : text;
+    }
+  }
+}
+
+function setLoadingBar(pct) {
+  document.getElementById('loading-bar').style.width = pct + '%';
+}
+
+let toastTimer;
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && state.step === 0) startSetup();
+});
+</script>
+</body>
+</html>
