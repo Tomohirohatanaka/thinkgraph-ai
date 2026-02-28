@@ -120,17 +120,21 @@ function saveGraph(g: Record<string, unknown>) {
 
 // ─── Stage helpers ────────────────────────────────────────────
 function stageLabel(char: Character, n: number): string {
-  if (!char.growth_stages?.length) return "";
-  return [...char.growth_stages]
-    .sort((a, b) => b.threshold - a.threshold)
-    .find(s => n >= s.threshold)?.label ?? char.growth_stages[0].label;
+  if (!char?.growth_stages?.length) return "";
+  try {
+    return [...char.growth_stages]
+      .sort((a, b) => b.threshold - a.threshold)
+      .find(s => n >= s.threshold)?.label ?? char.growth_stages[0]?.label ?? "";
+  } catch { return ""; }
 }
 function stageIndex(char: Character, n: number): number {
-  if (!char.growth_stages?.length) return 0;
-  const sorted = [...char.growth_stages].sort((a, b) => a.threshold - b.threshold);
-  let idx = 0;
-  sorted.forEach((s, i) => { if (n >= s.threshold) idx = i; });
-  return idx;
+  if (!char?.growth_stages?.length) return 0;
+  try {
+    const sorted = [...char.growth_stages].sort((a, b) => a.threshold - b.threshold);
+    let idx = 0;
+    sorted.forEach((s, i) => { if (n >= s.threshold) idx = i; });
+    return idx;
+  } catch { return 0; }
 }
 function nextThreshold(char: Character, n: number): number | null {
   const sorted = [...(char.growth_stages || [])].sort((a, b) => a.threshold - b.threshold);
@@ -525,7 +529,7 @@ function CharDetail({
               <div style={{ marginBottom: "0.75rem" }}>
                 <div style={{ fontSize: 12, color: cc, fontWeight: 700, marginBottom: "0.4rem" }}>💡 興味分野</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-                  {char.interests.map((t, i) => (
+                  {(char.interests || []).map((t, i) => (
                     <span key={i} style={{ fontSize: 12, background: `${cc}15`, color: cc, borderRadius: 20, padding: "0.2rem 0.7rem" }}>{t}</span>
                   ))}
                 </div>
@@ -535,7 +539,7 @@ function CharDetail({
               <div>
                 <div style={{ fontSize: 12, color: "#4ECDC4", fontWeight: 700, marginBottom: "0.4rem" }}>🧠 習得した知識エリア</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-                  {char.knowledge_areas.map((t, i) => (
+                  {(char.knowledge_areas || []).map((t, i) => (
                     <span key={i} style={{ fontSize: 12, background: "#f0fffe", color: "#4ECDC4", borderRadius: 20, padding: "0.2rem 0.7rem", border: "1px solid #4ECDC430" }}>{t}</span>
                   ))}
                 </div>
@@ -550,7 +554,7 @@ function CharDetail({
             <div style={{ fontSize: 12, color: "#888", fontWeight: 700, marginBottom: "0.6rem" }}>📖 {char.name}の成長記録</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
               {[...(char.evolution_log || [])].reverse().map((log, i) => (
-                <div key={i} style={{ fontSize: 12, color: "#555", padding: "0.3rem 0", borderBottom: i < (char.evolution_log.length - 1) ? "1px solid #f5f5f5" : "none", lineHeight: 1.5 }}>
+                <div key={i} style={{ fontSize: 12, color: "#555", padding: "0.3rem 0", borderBottom: i < ((char.evolution_log || []).length - 1) ? "1px solid #f5f5f5" : "none", lineHeight: 1.5 }}>
                   <span style={{ color: "#ddd", marginRight: "0.4rem" }}>●</span>{log}
                 </div>
               ))}
@@ -1454,7 +1458,7 @@ export default function App() {
                       <span style={{ fontSize: 17, fontWeight: 800, color: "#222" }}>{char.name}</span>
                     </div>
                     <div style={{ fontSize: 12, color: "#777", lineHeight: 1.4, marginBottom: "0.4rem" }}>
-                      {char.intro.length > 60 ? char.intro.slice(0, 60) + "…" : char.intro}
+                      {(char.intro || "").length > 60 ? (char.intro || "").slice(0, 60) + "…" : (char.intro || "")}
                     </div>
                     <StageBar char={char} n={profile.length} />
                   </div>

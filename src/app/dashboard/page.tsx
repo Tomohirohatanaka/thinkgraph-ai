@@ -41,7 +41,7 @@ export default async function DashboardPage() {
 
   return (
     <DashboardClient
-      user={{ id: user.id, email: user.email!, name: profile?.full_name || user.email!, role: profile?.role || "user" }}
+      user={{ id: user.id, email: user.email || "", name: profile?.full_name || user.email || "ユーザー", role: profile?.role || "user" }}
       sessions={sessions || []}
       stats={stats}
       concepts={concepts || []}
