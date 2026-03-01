@@ -2305,48 +2305,57 @@ export default function App() {
   return (
     <div className="app">
 
-      {/* ── 認証ヘッダー（LP統一デザイン） ── */}
+      {/* ── ナビゲーション ── */}
       <nav style={{
         position: "sticky", top: 0, zIndex: 50,
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "14px 24px", background: "rgba(255,255,255,0.95)",
+        padding: "12px 20px", background: "rgba(255,255,255,0.95)",
         backdropFilter: "blur(16px)", borderBottom: "1px solid rgba(0,0,0,0.04)",
-        marginBottom: 0,
+        marginBottom: 0, gap: 8,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <a href="/landing" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
+        {/* 左: ロゴ + ストリーク */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
             teach<span style={{ color: "#FF6B9D" }}>AI</span>
           </a>
           {streak.currentStreak > 0 && (
             <div style={{
               display: "flex", alignItems: "center", gap: 3,
-              padding: "3px 10px", borderRadius: 100,
+              padding: "3px 8px", borderRadius: 100,
               background: "linear-gradient(135deg, #FF6B9D08, #FF6B9D12)", border: "1px solid #FF6B9D18",
-              fontSize: 11, fontWeight: 700, color: "#FF6B9D",
+              fontSize: 10, fontWeight: 700, color: "#FF6B9D",
             }}>
               {streak.currentStreak}日連続
             </div>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+
+        {/* 中央: サブページリンク（見たい人だけアクセス） */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, overflow: "hidden" }}>
+          <a href="/landing" style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "#9CA3AF", textDecoration: "none", borderRadius: 8, whiteSpace: "nowrap", transition: "color 0.2s" }}>
+            About
+          </a>
+          {authUser && (
+            <a href="/dashboard" style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "#9CA3AF", textDecoration: "none", borderRadius: 8, whiteSpace: "nowrap", transition: "color 0.2s" }}>
+              Dashboard
+            </a>
+          )}
+          <a href="/api/docs" target="_blank" rel="noopener noreferrer" style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "#9CA3AF", textDecoration: "none", borderRadius: 8, whiteSpace: "nowrap", transition: "color 0.2s" }}>
+            API
+          </a>
+        </div>
+
+        {/* 右: 認証 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           {authUser ? (
             <>
-              <span style={{ fontSize: 12, color: "#6B7280", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
+              <span style={{ fontSize: 11, color: "#6B7280", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
                 {authUser.name}
               </span>
-              <a href="/dashboard" style={{
-                padding: "8px 16px", background: "linear-gradient(135deg, #0A2342, #1A6B72)", color: "white",
-                borderRadius: 10, textDecoration: "none", fontSize: 13, fontWeight: 700,
-                boxShadow: "0 2px 8px rgba(10,35,66,0.15)", transition: "all 0.2s",
-              }}>
-                ダッシュボード
-              </a>
-              <button onClick={() => {
-                  window.location.href = "/api/auth/logout";
-                }}
+              <button onClick={() => { window.location.href = "/api/auth/logout"; }}
                 style={{
-                  padding: "8px 16px", background: "transparent", border: "1.5px solid #E5E7EB",
-                  borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#6B7280", fontWeight: 600,
+                  padding: "7px 14px", background: "transparent", border: "1.5px solid #E5E7EB",
+                  borderRadius: 10, cursor: "pointer", fontSize: 12, color: "#6B7280", fontWeight: 600,
                   fontFamily: "inherit", transition: "all 0.2s",
                 }}>
                 ログアウト
@@ -2354,12 +2363,12 @@ export default function App() {
             </>
           ) : (
             <>
-              <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: "#6B7280", textDecoration: "none" }}>
+              <a href="/auth/login" style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#6B7280", textDecoration: "none", whiteSpace: "nowrap" }}>
                 ログイン
               </a>
               <a href="/auth/signup" style={{
-                padding: "10px 22px", fontSize: 13, fontWeight: 700,
-                color: "#fff", textDecoration: "none", borderRadius: 10,
+                padding: "8px 18px", fontSize: 12, fontWeight: 700,
+                color: "#fff", textDecoration: "none", borderRadius: 10, whiteSpace: "nowrap",
                 background: "linear-gradient(135deg, #0A2342, #1A6B72)", boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
               }}>
                 無料で始める
@@ -2375,7 +2384,6 @@ export default function App() {
           <div className="tab-nav">
             <button className={`tab-btn ${tab === "learn" ? "active" : ""}`} onClick={() => setTab("learn")}>✨ AIに教える</button>
             <button className={`tab-btn ${tab === "skills" ? "active" : ""}`} onClick={() => setTab("skills")}>📊 スキルマップ</button>
-{/* API docs link moved to dashboard */}
           </div>
 
           {tab === "learn" && (
