@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import ReviewReminder from "@/components/ReviewReminder";
+import GraphComparison from "@/components/GraphComparison";
+import CharacterGrowthTimeline from "@/components/CharacterGrowthTimeline";
 
 // ─── Types ────────────────────────────────────────────────────
 type Screen = "home" | "char_detail" | "session" | "result";
@@ -554,10 +557,10 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
 
 // ─── Character Detail ─────────────────────────────────────────
 function CharDetail({
-  char, profile, apiKey, evolving, onBack,
+  char, profile, apiKey, evolving, onBack, accentColor,
 }: {
   char: Character; profile: ProfileEntry[]; apiKey: string;
-  evolving: boolean; onBack: () => void;
+  evolving: boolean; onBack: () => void; accentColor?: string;
 }) {
   const n = profile.length;
   const idx = stageIndex(char, n);
@@ -647,6 +650,15 @@ function CharDetail({
               ))}
             </div>
           </div>
+        )}
+
+        {/* 成長タイムライン */}
+        {profile.length > 0 && (
+          <CharacterGrowthTimeline
+            char={char}
+            profile={profile}
+            accentColor={accentColor || cc}
+          />
         )}
 
         {!apiKey && (
@@ -1253,6 +1265,7 @@ export default function App() {
       char={char} profile={profile} apiKey={apiKey}
       evolving={charEvolving}
       onBack={() => setScreen("home")}
+      accentColor={cc}
     />
   );
 
@@ -1636,6 +1649,27 @@ export default function App() {
               </div>
             </div>
 
+            {/* 思考構造の比較（ユーザー vs 理想） */}
+            {apiKey && (
+              <GraphComparison
+                apiKey={apiKey}
+                topic={topic.title}
+                coreText={topic.core_text || ""}
+                turns={turns}
+                mastered={result.mastered}
+                accentColor={cc}
+              />
+            )}
+
+            {/* キャラクター成長タイムライン */}
+            {char && profile.length > 0 && (
+              <CharacterGrowthTimeline
+                char={char}
+                profile={profile}
+                accentColor={cc}
+              />
+            )}
+
             {/* キャラ成長バー */}
             {char && (
               <div className="card" style={{ marginBottom: "1.25rem", borderColor: `${cc}25`, background: `${cc}05` }}>
@@ -1940,6 +1974,16 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {/* 復習リマインド（忘却曲線ベース） */}
+              <ReviewReminder
+                graph={knowledgeGraph as { nodes: { id: string; label: string; domain: string; mastery: number; sessions: number; last_seen: string | null; decay_rate: number; confidence: number }[]; edges: unknown[]; stats: { total_concepts: number; avg_mastery: number; retention_score: number } } | null}
+                accentColor={cc}
+                onSelectTopic={(topic) => {
+                  setInputText(topic);
+                  setActiveInputTab("text");
+                }}
+              />
 
               {/* 履歴 */}
               {profile.length > 0 && (
