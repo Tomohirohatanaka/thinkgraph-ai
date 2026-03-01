@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, Suspense } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useEffect, Suspense } from "react";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
+import { getBaseUrl } from "@/lib/auth-url";
 
 function LoginFormInner() {
   const supabase = createClient();
@@ -17,34 +18,57 @@ function LoginFormInner() {
   const [error, setError] = useState<string | null>(
     authError === "auth_callback_failed" ? "認証に失敗しました。もう一度お試しください。" : null
   );
+  const [configured, setConfigured] = useState(true);
+
+  useEffect(() => {
+    setConfigured(isSupabaseConfigured());
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!configured) {
+      setError("認証サービスが設定されていません。管理者にお問い合わせください。");
+      return;
+    }
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      setError(
-        error.message === "Invalid login credentials"
-          ? "メールアドレスまたはパスワードが正しくありません"
-          : error.message
-      );
+      if (error) {
+        if (error.message === "Invalid login credentials") {
+          setError("メールアドレスまたはパスワードが正しくありません");
+        } else if (error.message === "Email not confirmed") {
+          setError("メールアドレスが確認されていません。受信箱の確認メールをご確認ください。");
+        } else {
+          setError(error.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      router.push(redirectTo);
+      router.refresh();
+    } catch {
+      setError("ネットワークエラーが発生しました。接続を確認してください。");
       setLoading(false);
-      return;
     }
-
-    router.push(redirectTo);
-    router.refresh();
   };
 
   const handleGoogleLogin = async () => {
+    if (!configured) {
+      setError("認証サービスが設定されていません。管理者にお問い合わせください。");
+      return;
+    }
     setLoading(true);
+    setError(null);
+
+    const baseUrl = getBaseUrl();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
+        redirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
       },
     });
     if (error) {
@@ -75,6 +99,19 @@ function LoginFormInner() {
           </p>
         </div>
 
+        {/* Supabase未設定の警告 */}
+        {!configured && (
+          <div style={{
+            background: "#FEF3C7", border: "1px solid #FDE68A",
+            borderRadius: 10, padding: "12px 16px", marginBottom: 20,
+            fontSize: 13, color: "#92400E", lineHeight: 1.5,
+          }}>
+            認証サービス（Supabase）が設定されていません。<br />
+            Vercel環境変数に <code style={{ background: "#FDE68A", padding: "1px 4px", borderRadius: 3 }}>NEXT_PUBLIC_SUPABASE_URL</code> と{" "}
+            <code style={{ background: "#FDE68A", padding: "1px 4px", borderRadius: 3 }}>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> を設定してください。
+          </div>
+        )}
+
         {/* Error */}
         {error && (
           <div style={{
@@ -82,22 +119,26 @@ function LoginFormInner() {
             borderRadius: 10, padding: "12px 16px", marginBottom: 20,
             fontSize: 13, color: "#DC2626",
           }}>
-            ⚠️ {error}
+            {error}
           </div>
         )}
 
         {/* Google Login */}
         <button
           onClick={handleGoogleLogin}
-          disabled={loading}
+          disabled={loading || !configured}
           style={{
             width: "100%", padding: "12px 20px", border: "2px solid #E5E7EB",
-            borderRadius: 12, background: "white", cursor: "pointer",
+            borderRadius: 12, background: "white",
+            cursor: loading || !configured ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-            fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 20,
+            fontSize: 14, fontWeight: 600,
+            color: !configured ? "#9CA3AF" : "#374151",
+            marginBottom: 20,
             transition: "border-color 0.2s",
+            opacity: !configured ? 0.6 : 1,
           }}
-          onMouseEnter={e => (e.currentTarget.style.borderColor = "#1A6B72")}
+          onMouseEnter={e => configured && (e.currentTarget.style.borderColor = "#1A6B72")}
           onMouseLeave={e => (e.currentTarget.style.borderColor = "#E5E7EB")}
         >
           <svg width="18" height="18" viewBox="0 0 24 24">
@@ -124,9 +165,11 @@ function LoginFormInner() {
             <input
               type="email" value={email} onChange={e => setEmail(e.target.value)}
               required placeholder="you@example.com"
+              disabled={!configured}
               style={{
                 width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB",
                 borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box",
+                opacity: !configured ? 0.6 : 1,
               }}
               onFocus={e => (e.currentTarget.style.borderColor = "#1A6B72")}
               onBlur={e => (e.currentTarget.style.borderColor = "#E5E7EB")}
@@ -146,9 +189,11 @@ function LoginFormInner() {
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)}
               required placeholder="••••••••"
+              disabled={!configured}
               style={{
                 width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB",
                 borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box",
+                opacity: !configured ? 0.6 : 1,
               }}
               onFocus={e => (e.currentTarget.style.borderColor = "#1A6B72")}
               onBlur={e => (e.currentTarget.style.borderColor = "#E5E7EB")}
@@ -156,13 +201,13 @@ function LoginFormInner() {
           </div>
 
           <button
-            type="submit" disabled={loading}
+            type="submit" disabled={loading || !configured}
             style={{
               width: "100%", padding: "13px 20px",
-              background: loading ? "#9CA3AF" : "linear-gradient(135deg, #0A2342, #1A6B72)",
+              background: (loading || !configured) ? "#9CA3AF" : "linear-gradient(135deg, #0A2342, #1A6B72)",
               color: "white", border: "none", borderRadius: 12,
               fontSize: 15, fontWeight: 700,
-              cursor: loading ? "not-allowed" : "pointer",
+              cursor: (loading || !configured) ? "not-allowed" : "pointer",
               transition: "opacity 0.2s",
             }}
           >

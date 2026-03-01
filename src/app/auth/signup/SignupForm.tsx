@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useEffect } from "react";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
+import { getBaseUrl } from "@/lib/auth-url";
 
 export default function SignupForm() {
   const supabase = createClient();
@@ -16,9 +17,18 @@ export default function SignupForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [configured, setConfigured] = useState(true);
+
+  useEffect(() => {
+    setConfigured(isSupabaseConfigured());
+  }, []);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!configured) {
+      setError("認証サービスが設定されていません。管理者にお問い合わせください。");
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -28,33 +38,46 @@ export default function SignupForm() {
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: name },
-        emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
-      },
-    });
+    try {
+      const baseUrl = getBaseUrl();
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: name },
+          emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
+        },
+      });
 
-    if (error) {
-      setError(error.message === "User already registered"
-        ? "このメールアドレスはすでに登録されています"
-        : error.message);
+      if (error) {
+        setError(error.message === "User already registered"
+          ? "このメールアドレスはすでに登録されています"
+          : error.message);
+        setLoading(false);
+        return;
+      }
+
+      setDone(true);
       setLoading(false);
-      return;
+    } catch {
+      setError("ネットワークエラーが発生しました。接続を確認してください。");
+      setLoading(false);
     }
-
-    setDone(true);
-    setLoading(false);
   };
 
   const handleGoogleSignup = async () => {
+    if (!configured) {
+      setError("認証サービスが設定されていません。管理者にお問い合わせください。");
+      return;
+    }
     setLoading(true);
+    setError(null);
+
+    const baseUrl = getBaseUrl();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
+        redirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
       },
     });
     if (error) {
@@ -104,22 +127,39 @@ export default function SignupForm() {
           <p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>無料アカウントを作成</p>
         </div>
 
+        {/* Supabase未設定の警告 */}
+        {!configured && (
+          <div style={{
+            background: "#FEF3C7", border: "1px solid #FDE68A",
+            borderRadius: 10, padding: "12px 16px", marginBottom: 20,
+            fontSize: 13, color: "#92400E", lineHeight: 1.5,
+          }}>
+            認証サービス（Supabase）が設定されていません。<br />
+            Vercel環境変数に <code style={{ background: "#FDE68A", padding: "1px 4px", borderRadius: 3 }}>NEXT_PUBLIC_SUPABASE_URL</code> と{" "}
+            <code style={{ background: "#FDE68A", padding: "1px 4px", borderRadius: 3 }}>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> を設定してください。
+          </div>
+        )}
+
         {error && (
           <div style={{ background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#DC2626" }}>
-            ⚠️ {error}
+            {error}
           </div>
         )}
 
         <button
           onClick={handleGoogleSignup}
-          disabled={loading}
+          disabled={loading || !configured}
           style={{
             width: "100%", padding: "12px 20px", border: "2px solid #E5E7EB",
-            borderRadius: 12, background: "white", cursor: "pointer",
+            borderRadius: 12, background: "white",
+            cursor: (loading || !configured) ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-            fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 20,
+            fontSize: 14, fontWeight: 600,
+            color: !configured ? "#9CA3AF" : "#374151",
+            marginBottom: 20,
+            opacity: !configured ? 0.6 : 1,
           }}
-          onMouseEnter={e => (e.currentTarget.style.borderColor = "#1A6B72")}
+          onMouseEnter={e => configured && (e.currentTarget.style.borderColor = "#1A6B72")}
           onMouseLeave={e => (e.currentTarget.style.borderColor = "#E5E7EB")}
         >
           <svg width="18" height="18" viewBox="0 0 24 24">
@@ -141,7 +181,8 @@ export default function SignupForm() {
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>お名前</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="山田 太郎"
-              style={{ width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+              disabled={!configured}
+              style={{ width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", opacity: !configured ? 0.6 : 1 }}
               onFocus={e => (e.currentTarget.style.borderColor = "#1A6B72")}
               onBlur={e => (e.currentTarget.style.borderColor = "#E5E7EB")}
             />
@@ -149,7 +190,8 @@ export default function SignupForm() {
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>メールアドレス</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com"
-              style={{ width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+              disabled={!configured}
+              style={{ width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", opacity: !configured ? 0.6 : 1 }}
               onFocus={e => (e.currentTarget.style.borderColor = "#1A6B72")}
               onBlur={e => (e.currentTarget.style.borderColor = "#E5E7EB")}
             />
@@ -157,16 +199,18 @@ export default function SignupForm() {
           <div style={{ marginBottom: 24 }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>パスワード（8文字以上）</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="••••••••"
-              style={{ width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+              disabled={!configured}
+              style={{ width: "100%", padding: "11px 14px", border: "2px solid #E5E7EB", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", opacity: !configured ? 0.6 : 1 }}
               onFocus={e => (e.currentTarget.style.borderColor = "#1A6B72")}
               onBlur={e => (e.currentTarget.style.borderColor = "#E5E7EB")}
             />
           </div>
-          <button type="submit" disabled={loading}
+          <button type="submit" disabled={loading || !configured}
             style={{
-              width: "100%", padding: "13px 20px", background: loading ? "#9CA3AF" : "#0A2342",
+              width: "100%", padding: "13px 20px",
+              background: (loading || !configured) ? "#9CA3AF" : "#0A2342",
               color: "white", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
-              cursor: loading ? "not-allowed" : "pointer",
+              cursor: (loading || !configured) ? "not-allowed" : "pointer",
             }}>
             {loading ? "処理中..." : "アカウントを作成"}
           </button>

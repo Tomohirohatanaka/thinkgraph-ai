@@ -174,7 +174,7 @@ function buildOpenAPISpec(baseUrl: string) {
         "各機能は独立したAPIとして設計されており、別サービスへの組み込みが可能です。",
         "詳細は [GitHub](https://github.com/hatanakas/thinkgraph-ai) を参照してください。",
       ].join("\n"),
-      contact: { url: "https://thinkgraph-ai.vercel.app" },
+      contact: { url: baseUrl },
     },
     servers: [{ url: baseUrl, description: "Production" }],
     tags: [
