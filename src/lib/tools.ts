@@ -1,3 +1,4 @@
+import { V3_TOOLS } from "./tools-v3";
 /**
  * teachAI Tool Registry
  * ──────────────────────
@@ -161,4 +162,5 @@ export const TOOLS: ToolDefinition[] = [
 ];
 
 // ツール名からツール定義を引くユーティリティ
-export const TOOL_MAP = Object.fromEntries(TOOLS.map(t => [t.name, t]));
+export const ALL_TOOLS = [...TOOLS, ...V3_TOOLS];
+export const TOOL_MAP = Object.fromEntries(ALL_TOOLS.map(t => [t.name, t]));

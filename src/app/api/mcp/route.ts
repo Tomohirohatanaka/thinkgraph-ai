@@ -15,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { TOOLS, TOOL_MAP } from "@/lib/tools";
+import { ALL_TOOLS as TOOLS, TOOL_MAP } from "@/lib/tools";
 import { CORS_HEADERS, corsResponse } from "@/lib/api";
 
 // ─── MCP サーバー情報 ────────────────────────────────────────
@@ -55,12 +55,21 @@ async function callTool(name: string, args: Record<string, unknown>, baseUrl: st
     evolve_character:     "/api/character",
     generate_skill_map:   "/api/skills",
     interview_turn:       "/api/interview",
+    get_elo_rating:       "/api/elo",
+    update_elo_rating:    "/api/elo",
+    score_v3:             "/api/score-v3",
   };
 
   const endpoint = endpoints[name];
   if (!endpoint) throw new Error(`Unknown tool: ${name}`);
 
   // GET ツール
+  if (name === "get_elo_rating") {
+    const topic = args?.topic ? `?topic=${encodeURIComponent(String(args.topic))}` : "";
+    const res = await fetch(`${baseUrl}${endpoint}${topic}`, { headers: CORS_HEADERS });
+    return res.json();
+  }
+
   if (name === "get_character") {
     const res = await fetch(`${baseUrl}${endpoint}`, { headers: CORS_HEADERS });
     return res.json();

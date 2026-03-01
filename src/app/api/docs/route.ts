@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { TOOLS } from "@/lib/tools";
+import { ALL_TOOLS as TOOLS } from "@/lib/tools";
 import { CORS_HEADERS, API_VERSION } from "@/lib/api";
 
 function buildOpenAPISpec(baseUrl: string) {
