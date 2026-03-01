@@ -44,6 +44,7 @@ interface SessionResult {
 }
 
 interface GrowthStage { label: string; threshold: number; }
+interface CharVoice { rate: number; pitch: number; }
 interface Character {
   id: string; name: string; emoji: string; color: string;
   personality: string; speaking_style: string;
@@ -53,11 +54,15 @@ interface Character {
   knowledge_areas: string[];
   growth_stages: GrowthStage[];
   evolution_log: string[];
+  custom_name?: string;
+  custom_personality?: string;
+  voice?: CharVoice;
 }
 
 interface ProfileEntry {
   id: string; date: string; title: string; mode: Mode;
   score: number; mastered: string[]; gaps: string[];
+  solo_v3?: { completeness: number; depth: number; clarity: number; structural_coherence: number; pedagogical_insight: number };
 }
 
 interface SkillEntry { name: string; level: number; sessions: number; }
@@ -74,6 +79,24 @@ interface SkillMap {
 const MODE_EMOJI: Record<Mode, string> = {
   whynot: "🔍", vocabulary: "📖", concept: "🧠", procedure: "📋",
 };
+
+// キャラクター別デフォルト音声設定
+const DEFAULT_CHAR_VOICE: Record<string, CharVoice> = {
+  mio:  { rate: 1.10, pitch: 1.20 },  // ミオ: 元気で高め
+  sora: { rate: 0.95, pitch: 0.90 },  // ソラ: 落ち着いて低め
+  haru: { rate: 1.05, pitch: 1.05 },  // ハル: 標準的
+  rin:  { rate: 1.00, pitch: 1.15 },  // リン: やや高め丁寧
+};
+function getCharVoice(char: Character | null): CharVoice {
+  if (char?.voice) return char.voice;
+  if (char?.id && DEFAULT_CHAR_VOICE[char.id]) return DEFAULT_CHAR_VOICE[char.id];
+  return { rate: 1.05, pitch: 1.05 };
+}
+
+// テキスト入力の制限値
+const TEXT_INPUT_LIMIT = 50000;       // 50,000文字 ≈ 約100KB
+const FILE_TEXT_LIMIT = 50000;        // テキストファイルの読取上限
+const AUTO_SPLIT_THRESHOLD = 30000;   // この文字数を超えたら分割を提案
 
 // ─── Provider detection (frontend mirror of llm.ts) ─────────────
 function detectProviderLabel(key: string): { label: string; color: string; placeholder: string } {
@@ -287,13 +310,16 @@ function useSynth() {
   }, []);
 
   // 長文をチャンク分割して順番に読み上げる（Chromium 15秒制限対策）
-  const speak = useCallback((text: string, cb?: () => void) => {
+  // charVoice: キャラクター別の音声設定（rate, pitch）
+  const speak = useCallback((text: string, cb?: () => void, charVoice?: CharVoice) => {
     if (!window.speechSynthesis) { cb?.(); return; }
     window.speechSynthesis.cancel();
     cancelledRef.current = false;
 
     const cleaned = cleanForSpeech(text);
     if (!cleaned) { cb?.(); return; }
+
+    const voice = charVoice || { rate: 1.05, pitch: 1.05 };
 
     // 句点・疑問符・感嘆符で分割して200文字以内のチャンクに
     const sentences = cleaned.split(/(?<=[。！？!?])\s*/g).filter(s => s.trim());
@@ -314,7 +340,7 @@ function useSynth() {
     const speakNext = () => {
       if (cancelledRef.current || idx >= chunks.length) { cb?.(); return; }
       const u = new SpeechSynthesisUtterance(chunks[idx]);
-      u.lang = "ja-JP"; u.rate = 1.05; u.pitch = 1.05;
+      u.lang = "ja-JP"; u.rate = voice.rate; u.pitch = voice.pitch;
       if (jaGoogle) u.voice = jaGoogle;
       else if (jaAny) u.voice = jaAny;
 
@@ -437,7 +463,7 @@ function StageUpBanner({ char, newStage, onDone }: { char: Character; newStage: 
         <div style={{ fontSize: 56, marginBottom: "0.4rem" }}>{char.emoji}</div>
         <div style={{ fontSize: 11, letterSpacing: "0.2em", color: char.color, fontWeight: 800, marginBottom: "0.4rem" }}>STAGE UP</div>
         <div style={{ fontSize: 24, fontWeight: 900, color: "#fff", marginBottom: "0.5rem" }}>{newStage}</div>
-        <div style={{ fontSize: 13, color: "#777" }}>{char.name}との絆が深まった</div>
+        <div style={{ fontSize: 13, color: "#777" }}>{char.custom_name || char.name}との絆が深まった</div>
       </div>
     </div>
   );
@@ -612,25 +638,30 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
     { label: "教育的洞察", color: "#E67E22", icon: "💡" },
   ];
 
-  // Derive SOLO dimension scores from category avg_scores (map categories to 5 SOLO axes)
-  // Use skill categories' avg_score normalized to 5-point SOLO scale
   const cats = skillMap.categories || [];
   const globalAvg = skillMap.avg_score || 0;
-  // Estimate SOLO dimension scores from overall skill data
-  // Each dimension is derived from the average score, with variance from category distributions
-  const catAvgs = cats.map(c => c.avg_score);
-  const catMax = catAvgs.length > 0 ? Math.max(...catAvgs) : globalAvg;
-  const catMin = catAvgs.length > 0 ? Math.min(...catAvgs) : globalAvg;
-  const spread = catMax - catMin;
 
-  const soloValues = soloAxes.map((_, i) => {
-    // Create slightly varied values from the global average for visual interest
-    const base = globalAvg / 20; // normalize to ~5 scale (score is 0-100)
-    const variance = spread > 0 && catAvgs.length > i
-      ? ((catAvgs[i % catAvgs.length] - globalAvg) / 100) * 2
-      : (i === 0 ? 0.2 : i === 1 ? -0.1 : i === 2 ? 0.15 : i === 3 ? -0.2 : 0.3) * (base / 5);
-    return Math.max(0.5, Math.min(5, base + variance));
-  });
+  // 実際のv3 SOLOスコアが保存されていればそれを使用、なければカテゴリ平均から推定
+  const v3Entries = profile.filter(p => p.solo_v3);
+  const soloValues = (() => {
+    if (v3Entries.length > 0) {
+      // 実データがある: 全v3セッションの平均を計算
+      const keys: (keyof NonNullable<ProfileEntry["solo_v3"]>)[] = ["completeness", "depth", "clarity", "structural_coherence", "pedagogical_insight"];
+      return keys.map(key => {
+        const sum = v3Entries.reduce((acc, e) => acc + (e.solo_v3?.[key] ?? 0), 0);
+        return Math.max(0.5, Math.min(5, sum / v3Entries.length));
+      });
+    }
+    // フォールバック: カテゴリ平均から推定
+    const base = globalAvg / 20;
+    return soloAxes.map((_, i) => {
+      const catAvgs = cats.map(c => c.avg_score);
+      const variance = catAvgs.length > i
+        ? ((catAvgs[i % catAvgs.length] - globalAvg) / 100) * 2
+        : (i === 0 ? 0.2 : i === 1 ? -0.1 : i === 2 ? 0.15 : i === 3 ? -0.2 : 0.3) * (base / 5);
+      return Math.max(0.5, Math.min(5, base + variance));
+    });
+  })();
 
   const radarAxes = soloAxes.map((a, i) => ({
     label: a.label,
@@ -723,7 +754,7 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
       )}
 
       {/* 強み・弱み・次のステップ */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
+      <div className="grid-2col" style={{ marginTop: "1rem" }}>
         <div className="card" style={{ borderColor: "#4ECDC430", background: "#f0fffe" }}>
           <div style={{ fontSize: 12, color: "#4ECDC4", fontWeight: 700, marginBottom: "0.6rem" }}>💪 {charName}の得意分野</div>
           {(skillMap.strengths || []).map((s, i) => <div key={i} style={{ fontSize: 13, color: "#333", padding: "0.2rem 0" }}>✓ {s}</div>)}
@@ -747,10 +778,11 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
 
 // ─── Character Detail ─────────────────────────────────────────
 function CharDetail({
-  char, profile, apiKey, trialAvailable, evolving, onBack, accentColor,
+  char, profile, apiKey, trialAvailable, evolving, onBack, accentColor, onEditChar,
 }: {
   char: Character; profile: ProfileEntry[]; apiKey: string;
   trialAvailable?: boolean; evolving: boolean; onBack: () => void; accentColor?: string;
+  onEditChar?: () => void;
 }) {
   const n = profile.length;
   const idx = stageIndex(char, n);
@@ -760,13 +792,12 @@ function CharDetail({
 
   return (
     <div className="app" style={{ overflowY: "auto" }}>
-      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
       <div style={{
         position: "sticky", top: 0, background: "#fff", borderBottom: "1px solid #f0f0f0",
         padding: "0.75rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem", zIndex: 10,
       }}>
         <button onClick={onBack} style={{ background: "none", border: "none", fontSize: 22, color: "#bbb", cursor: "pointer", lineHeight: 1 }}>←</button>
-        <span style={{ fontWeight: 700, fontSize: 16, color: "#222" }}>{char.name}のプロフィール</span>
+        <span style={{ fontWeight: 700, fontSize: 16, color: "#222" }}>{char.custom_name || char.name}のプロフィール</span>
         {evolving && <span style={{ fontSize: 12, color: cc, marginLeft: "auto" }}>✨ 進化中...</span>}
       </div>
 
@@ -774,8 +805,16 @@ function CharDetail({
         {/* キャラクターカード */}
         <div className="card" style={{ background: `${cc}08`, borderColor: `${cc}30`, marginBottom: "1rem", textAlign: "center" }}>
           <div style={{ fontSize: 72, marginBottom: "0.5rem" }}>{char.emoji}</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#222", marginBottom: "0.2rem" }}>{char.name}</div>
-          <div style={{ fontSize: 13, color: "#666", marginBottom: "1rem", lineHeight: 1.6 }}>{char.personality}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#222", marginBottom: "0.2rem" }}>{char.custom_name || char.name}</div>
+          {char.custom_name && <div style={{ fontSize: 11, color: "#bbb", marginBottom: "0.2rem" }}>（{char.name}）</div>}
+          <div style={{ fontSize: 13, color: "#666", marginBottom: "0.75rem", lineHeight: 1.6 }}>{char.custom_personality || char.personality}</div>
+          {onEditChar && (
+            <button onClick={onEditChar} style={{
+              padding: "0.4rem 1rem", borderRadius: 20, border: `1.5px solid ${cc}30`,
+              background: `${cc}08`, color: cc, fontSize: 12, fontWeight: 700,
+              cursor: "pointer", fontFamily: "inherit", marginBottom: "0.75rem",
+            }}>✏️ カスタマイズ</button>
+          )}
 
           {/* 成長バー */}
           <StageBar char={char} n={n} />
@@ -788,7 +827,7 @@ function CharDetail({
 
         {/* 口調サンプル */}
         <div className="card" style={{ marginBottom: "1rem" }}>
-          <div style={{ fontSize: 12, color: cc, fontWeight: 700, marginBottom: "0.75rem" }}>💬 {char.name}の話し方</div>
+          <div style={{ fontSize: 12, color: cc, fontWeight: 700, marginBottom: "0.75rem" }}>💬 {char.custom_name || char.name}の話し方</div>
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: "0.5rem" }}>口調: {char.speaking_style}</div>
           {[
             { label: "褒めるとき", text: char.praise },
@@ -831,7 +870,7 @@ function CharDetail({
         {/* 進化ログ */}
         {(char.evolution_log || []).length > 0 && (
           <div className="card" style={{ marginBottom: "1rem" }}>
-            <div style={{ fontSize: 12, color: "#888", fontWeight: 700, marginBottom: "0.6rem" }}>📖 {char.name}の成長記録</div>
+            <div style={{ fontSize: 12, color: "#888", fontWeight: 700, marginBottom: "0.6rem" }}>📖 {char.custom_name || char.name}の成長記録</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
               {[...(char.evolution_log || [])].reverse().map((log, i) => (
                 <div key={i} style={{ fontSize: 12, color: "#555", padding: "0.3rem 0", borderBottom: i < ((char.evolution_log || []).length - 1) ? "1px solid #f5f5f5" : "none", lineHeight: 1.5 }}>
@@ -853,7 +892,7 @@ function CharDetail({
 
         {!apiKey && !trialAvailable && (
           <div style={{ textAlign: "center", fontSize: 12, color: "#bbb", padding: "0.75rem", background: "#fafafa", borderRadius: 12 }}>
-            APIキーを設定するとセッション後に{char.name}が進化します
+            APIキーを設定するとセッション後に{char.custom_name || char.name}が進化します
           </div>
         )}
       </div>
@@ -877,6 +916,11 @@ export default function App() {
   const [streak, setStreak] = useState<StreakData>({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
   const [trialAvailable, setTrialAvailable] = useState(false);
   const [historyPopup, setHistoryPopup] = useState<ProfileEntry | null>(null);
+  const [showCharEdit, setShowCharEdit] = useState(false);
+  const [charEditName, setCharEditName] = useState("");
+  const [charEditPersonality, setCharEditPersonality] = useState("");
+  const [charEditRate, setCharEditRate] = useState(1.05);
+  const [charEditPitch, setCharEditPitch] = useState(1.05);
 
   // APIキーが使えるか（ユーザーキーまたはサーバーサイドキー）
   const canUseApi = !!(apiKey || trialAvailable);
@@ -1151,7 +1195,7 @@ export default function App() {
         const fb = "申し訳ありません、エラーが発生しました。";
         setTurns(prev => [...prev, { role: "ai", text: fb }]);
         setVoiceState("speaking");
-        synth.speak(fb, () => setVoiceState("idle"));
+        synth.speak(fb, () => setVoiceState("idle"), getCharVoice(charRef.current));
         return;
       }
 
@@ -1159,7 +1203,7 @@ export default function App() {
         setTurns(prev => [...prev, { role: "ai", text: data.message }]);
         setQuitMsg(data.message); setShowQuit(true);
         setVoiceState("speaking");
-        synth.speak(data.message, () => setVoiceState("idle"));
+        synth.speak(data.message, () => setVoiceState("idle"), getCharVoice(charRef.current));
         return;
       }
 
@@ -1227,6 +1271,7 @@ export default function App() {
           score: score.total,
           mastered: Array.isArray(data.mastered) ? data.mastered : [],
           gaps: Array.isArray(data.gaps) ? data.gaps : [],
+          solo_v3: data.score_v3?.raw || undefined,
         };
         saveProfileEntry(entry);
         const newProfile = loadProfile();
@@ -1290,20 +1335,42 @@ export default function App() {
         synth.speak(aiText, () => {
           setVoiceState("idle");
           setTimeout(() => setScreen("result"), 800);
-        });
+        }, getCharVoice(charRef.current));
         return;
       }
 
       setVoiceState("speaking");
-      synth.speak(aiText, () => setVoiceState("idle"));
+      synth.speak(aiText, () => setVoiceState("idle"), getCharVoice(charRef.current));
 
     } catch {
       const fb = "通信エラーが発生しました。";
       setTurns(prev => [...prev, { role: "ai", text: fb }]);
       setVoiceState("speaking");
-      synth.speak(fb, () => setVoiceState("idle"));
+      synth.speak(fb, () => setVoiceState("idle"), getCharVoice(charRef.current));
     }
   }, [apiKey, synth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── テキスト分割ユーティリティ ────────────────────────────────
+  const [splitParts, setSplitParts] = useState<string[]>([]);
+  const [splitIndex, setSplitIndex] = useState(0);
+  const [showSplitModal, setShowSplitModal] = useState(false);
+
+  function splitTextIntoChunks(text: string, chunkSize = AUTO_SPLIT_THRESHOLD): string[] {
+    if (text.length <= chunkSize) return [text];
+    const chunks: string[] = [];
+    const paragraphs = text.split(/\n\n+/);
+    let current = "";
+    for (const para of paragraphs) {
+      if (current.length + para.length > chunkSize && current) {
+        chunks.push(current.trim());
+        current = para;
+      } else {
+        current += (current ? "\n\n" : "") + para;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.length > 0 ? chunks : [text.slice(0, chunkSize)];
+  }
 
   // ── Ingest ───────────────────────────────────────────────────
   async function handleStart() {
@@ -1311,6 +1378,19 @@ export default function App() {
     if (!inputUrl.trim() && !inputText.trim() && !fileContent && !fileData) {
       setError("URLかテキストを入力してください"); return;
     }
+
+    // 長文テキストの場合は分割を提案
+    const textToSend = fileContent || inputText.trim();
+    if (!inputUrl.trim() && !fileData && textToSend.length > AUTO_SPLIT_THRESHOLD) {
+      const parts = splitTextIntoChunks(textToSend);
+      if (parts.length > 1) {
+        setSplitParts(parts);
+        setSplitIndex(0);
+        setShowSplitModal(true);
+        return;
+      }
+    }
+
     setLoading(true); setError("");
     try {
       const res = await fetch("/api/ingest", {
@@ -1348,7 +1428,7 @@ export default function App() {
           : firstQuestion;
         setTurns([{ role: "ai", text: introText }]);
         setVoiceState("speaking");
-        synth.speak(introText, () => setVoiceState("idle"));
+        synth.speak(introText, () => setVoiceState("idle"), getCharVoice(charRef.current));
       }, 400);
 
     } catch (e: unknown) {
@@ -1429,10 +1509,14 @@ export default function App() {
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return;
+    // ファイルサイズ制限: 10MB
+    if (f.size > 10 * 1024 * 1024) {
+      setError("ファイルサイズは10MB以下にしてください"); return;
+    }
     const name = f.name.toLowerCase();
     const isTxt = f.type.includes("text") || name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".csv");
     if (isTxt) {
-      const t = await f.text(); setFileContent(t.slice(0, 20000)); setFileData(null);
+      const t = await f.text(); setFileContent(t.slice(0, FILE_TEXT_LIMIT)); setFileData(null);
     } else {
       const reader = new FileReader();
       reader.onload = () => {
@@ -1464,13 +1548,87 @@ export default function App() {
   //  CHARACTER DETAIL SCREEN
   // ════════════════════════════════════════════════════════════
   if (screen === "char_detail" && char) return (
-    <CharDetail
-      char={char} profile={profile} apiKey={apiKey}
-      trialAvailable={trialAvailable}
-      evolving={charEvolving}
-      onBack={() => setScreen("home")}
-      accentColor={cc}
-    />
+    <>
+      <CharDetail
+        char={char} profile={profile} apiKey={apiKey}
+        trialAvailable={trialAvailable}
+        evolving={charEvolving}
+        onBack={() => setScreen("home")}
+        accentColor={cc}
+        onEditChar={() => {
+          setCharEditName(char.custom_name || char.name);
+          setCharEditPersonality(char.custom_personality || char.personality);
+          const v = getCharVoice(char);
+          setCharEditRate(v.rate);
+          setCharEditPitch(v.pitch);
+          setShowCharEdit(true);
+        }}
+      />
+      {/* キャラクターカスタマイズモーダル */}
+      {showCharEdit && (
+        <div className="overlay" onClick={() => setShowCharEdit(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: "0.25rem" }}>
+              {char.emoji} キャラクターカスタマイズ
+            </div>
+            <div style={{ fontSize: 12, color: "#bbb", marginBottom: "1rem" }}>
+              名前や性格を変更できます（生徒としての関係性は維持されます）
+            </div>
+
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>表示名</label>
+              <input value={charEditName} onChange={e => setCharEditName(e.target.value)}
+                placeholder={char.name} className="input-base" maxLength={20} />
+            </div>
+
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>性格・口調メモ</label>
+              <textarea value={charEditPersonality} onChange={e => setCharEditPersonality(e.target.value)}
+                placeholder={char.personality} className="input-base" rows={3}
+                style={{ resize: "vertical" }} maxLength={200} />
+              <div style={{ fontSize: 10, color: "#ccc", textAlign: "right", marginTop: 2 }}>{charEditPersonality.length}/200</div>
+            </div>
+
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>読み上げ速度: {charEditRate.toFixed(2)}</label>
+              <input type="range" min="0.5" max="1.5" step="0.05" value={charEditRate}
+                onChange={e => setCharEditRate(parseFloat(e.target.value))}
+                style={{ width: "100%" }} />
+            </div>
+
+            <div style={{ marginBottom: "1rem" }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>声の高さ: {charEditPitch.toFixed(2)}</label>
+              <input type="range" min="0.5" max="1.5" step="0.05" value={charEditPitch}
+                onChange={e => setCharEditPitch(parseFloat(e.target.value))}
+                style={{ width: "100%" }} />
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button className="btn-primary" onClick={() => {
+                const updated = {
+                  ...char,
+                  custom_name: charEditName.trim() !== char.name ? charEditName.trim() : undefined,
+                  custom_personality: charEditPersonality.trim() !== char.personality ? charEditPersonality.trim() : undefined,
+                  voice: { rate: charEditRate, pitch: charEditPitch },
+                };
+                setChar(updated);
+                saveChar(updated);
+                setShowCharEdit(false);
+              }} style={{ flex: 1, marginTop: 0, background: cc }}>保存</button>
+              <button className="btn-primary" onClick={() => {
+                // リセット
+                const updated = { ...char, custom_name: undefined, custom_personality: undefined, voice: undefined };
+                setChar(updated);
+                saveChar(updated);
+                setShowCharEdit(false);
+              }} style={{ flex: 0, marginTop: 0, background: "#f5f5f5", color: "#555", padding: "0.875rem 1rem" }}>リセット</button>
+              <button className="btn-primary" onClick={() => setShowCharEdit(false)}
+                style={{ flex: 0, marginTop: 0, background: "#f5f5f5", color: "#555", padding: "0.875rem 1rem" }}>閉じる</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 
   // ════════════════════════════════════════════════════════════
@@ -1482,7 +1640,7 @@ export default function App() {
 
     return (
       <div className="session-wrap app">
-        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
 
         {/* Stage-up */}
         {stageUp && <StageUpBanner char={stageUp.char} newStage={stageUp.newStage} onDone={() => setStageUp(null)} />}
@@ -1529,7 +1687,7 @@ export default function App() {
             </div>
             {char && (
               <div style={{ fontSize: 10, color: cc, fontWeight: 600, display: "flex", gap: "0.3rem", alignItems: "center" }}>
-                {char.emoji} {char.name}
+                {char.emoji} {char.custom_name || char.name}
                 <span style={{ opacity: 0.5 }}>·</span>
                 {stageLabel(char, profile.length)}
                 {leadingPenalty > 0 && (
@@ -1631,7 +1789,13 @@ export default function App() {
         <div className="input-bar">
           <div style={{ position: "relative", flex: 1 }}>
             <textarea ref={chatInputRef} value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
+              onChange={e => {
+                setChatInput(e.target.value);
+                // Auto-grow textarea
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = Math.min(el.scrollHeight, 120) + "px";
+              }}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitChat(); } }}
               placeholder={voiceState === "listening" ? "🎙️ 聞いています..." : voiceState === "processing" ? "⌛ 処理中..." : "テキストで入力... (Enter送信)"}
               disabled={isDisabled}
@@ -1691,7 +1855,7 @@ export default function App() {
                     const introText = charRef.current?.intro || topic.first_prompt || "";
                     setTurns([{ role: "ai", text: introText }]);
                     setVoiceState("speaking");
-                    synth.speak(introText, () => setVoiceState("idle"));
+                    synth.speak(introText, () => setVoiceState("idle"), getCharVoice(charRef.current));
                   }, 300);
                 }} style={{ flex: 1, marginTop: 0, background: "#f5f5f5", color: "#555" }}>もう一度</button>
               </div>
@@ -1724,7 +1888,7 @@ export default function App() {
 
     return (
       <div className="app" style={{ overflowY: "auto" }}>
-        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
         {stageUp && <StageUpBanner char={stageUp.char} newStage={stageUp.newStage} onDone={() => setStageUp(null)} />}
         <div className="result-wrap">
           <div className="result-inner">
@@ -1736,7 +1900,7 @@ export default function App() {
               {char && (
                 <div style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem", padding: "0.3rem 0.75rem", borderRadius: 100, background: `${cc}12`, border: `1px solid ${cc}30` }}>
                   <span>{char.emoji}</span>
-                  <span style={{ fontSize: 12, color: cc, fontWeight: 600 }}>{char.name}に教えたセッション</span>
+                  <span style={{ fontSize: 12, color: cc, fontWeight: 600 }}>{char.custom_name || char.name}に教えたセッション</span>
                 </div>
               )}
               {isV3 && (
@@ -1866,13 +2030,13 @@ export default function App() {
             {/* Feedback */}
             <div className="card" style={{ marginBottom: "1rem", background: `${cc}06`, borderColor: `${cc}25` }}>
               <div style={{ fontSize: 11, color: cc, fontWeight: 700, marginBottom: "0.4rem" }}>
-                {char ? `${char.emoji} ${char.name}からのフィードバック` : "フィードバック"}
+                {char ? `${char.emoji} ${char.custom_name || char.name}からのフィードバック` : "フィードバック"}
               </div>
               <div style={{ fontSize: 14, color: "#444", lineHeight: 1.75 }}>{result.feedback}</div>
             </div>
 
             {/* Mastered / Gaps */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1.25rem" }}>
+            <div className="grid-2col" style={{ marginBottom: "1rem" }}>
               <div className="card">
                 <div style={{ fontSize: 11, color: "#4ECDC4", fontWeight: 700, marginBottom: "0.4rem" }}>✓ 理解できた</div>
                 {result.mastered.length ? result.mastered.map(c => (
@@ -1886,6 +2050,36 @@ export default function App() {
                 )) : <div style={{ fontSize: 12, color: "#ccc" }}>—</div>}
               </div>
             </div>
+
+            {/* キャラクター性格ベースの学び直しフィードバック */}
+            {char && result.gaps.length > 0 && (
+              <div className="card fade-in" style={{ marginBottom: "1.25rem", background: `${cc}06`, borderColor: `${cc}25`, border: `1.5px solid ${cc}25` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <Avatar char={char} size={32} expression="confused" />
+                  <div style={{ fontSize: 13, fontWeight: 800, color: cc }}>{char.custom_name || char.name}からのアドバイス</div>
+                </div>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.75, marginBottom: "0.75rem" }}>
+                  {char.struggle} {result.gaps.length === 1
+                    ? `「${result.gaps[0]}」についてもう一度一緒に考えてみよう！`
+                    : `「${result.gaps.slice(0, 2).join("」と「")}」${result.gaps.length > 2 ? "など" : ""}をもう一度教えてくれると嬉しいな！`
+                  }
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {result.gaps.slice(0, 3).map(gap => (
+                    <button key={gap} className="btn-ghost" onClick={() => {
+                      setInputText(`${topic.title} - ${gap}`);
+                      setScreen("home"); setTopic(null);
+                      setActiveInputTab("text");
+                    }} style={{
+                      padding: "0.35rem 0.75rem", borderRadius: 20, fontSize: 12, fontWeight: 600,
+                      background: `${cc}15`, color: cc, border: `1px solid ${cc}30`,
+                    }}>
+                      📖 {gap}を学び直す
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 思考構造の比較（ユーザー vs 理想） */}
             {canUseApi && (
@@ -1914,7 +2108,7 @@ export default function App() {
                 <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
                   <Avatar char={char} size={40} />
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#222" }}>{char.name}との絆</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#222" }}>{char.custom_name || char.name}との絆</div>
                     <div style={{ fontSize: 11, color: cc }}>{stageLabel(char, profile.length)} · {profile.length}セッション</div>
                   </div>
                 </div>
@@ -1934,7 +2128,7 @@ export default function App() {
                   const introText = charRef.current?.intro || topic.first_prompt || "";
                   setTurns([{ role: "ai", text: introText }]);
                   setVoiceState("speaking");
-                  synth.speak(introText, () => setVoiceState("idle"));
+                  synth.speak(introText, () => setVoiceState("idle"), getCharVoice(charRef.current));
                 }, 400);
               }} style={{ flex: 1, background: cc, marginTop: 0 }}>もう一度</button>
               <button className="btn-primary" onClick={() => {
@@ -1945,35 +2139,41 @@ export default function App() {
             </div>
 
             {/* Share Buttons */}
-            <div style={{ marginTop: "1rem", textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "#ccc", marginBottom: "0.5rem", fontWeight: 600 }}>結果をシェア</div>
-              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
-                <button onClick={() => {
-                  const text = `${topic.title}をAIに教えて${total}点獲得！${grade ? ` Grade ${grade}` : ""}\n#teachAI #AIに教えて理解する`;
-                  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank");
-                }} style={{
-                  padding: "8px 16px", borderRadius: 10, border: "1.5px solid #1DA1F220",
-                  background: "#1DA1F208", color: "#1DA1F2", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                }}>𝕏 ポスト</button>
-                <button onClick={() => {
-                  const text = `${topic.title}をAIに教えて${total}点獲得！${grade ? ` Grade ${grade}` : ""}\n#teachAI`;
-                  window.open(`https://social-plugins.line.me/lineit/share?text=${encodeURIComponent(text)}`, "_blank");
-                }} style={{
-                  padding: "8px 16px", borderRadius: 10, border: "1.5px solid #06C75520",
-                  background: "#06C75508", color: "#06C755", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                }}>LINE</button>
-                <button onClick={() => {
-                  const text = `${topic.title}をAIに教えて${total}点獲得！ Grade ${grade || "-"} #teachAI`;
-                  navigator.clipboard?.writeText(text);
-                }} style={{
-                  padding: "8px 16px", borderRadius: 10, border: "1.5px solid #eee",
-                  background: "#fafafa", color: "#888", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                }}>コピー</button>
+            {(() => {
+              const shareScore = isV3 ? `${displayScore}${displayMax}` : `${total}点`;
+              const shareGrade = grade ? ` Grade ${grade}` : "";
+              return (
+              <div style={{ marginTop: "1rem", textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: "#ccc", marginBottom: "0.5rem", fontWeight: 600 }}>結果をシェア</div>
+                <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap" }}>
+                  <button onClick={() => {
+                    const text = `${topic.title}をAIに教えて${shareScore}獲得！${shareGrade}\n#teachAI #AIに教えて理解する`;
+                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank");
+                  }} style={{
+                    padding: "8px 16px", borderRadius: 10, border: "1.5px solid #1DA1F220",
+                    background: "#1DA1F208", color: "#1DA1F2", fontSize: 12, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}>𝕏 ポスト</button>
+                  <button onClick={() => {
+                    const text = `${topic.title}をAIに教えて${shareScore}獲得！${shareGrade}\n#teachAI`;
+                    window.open(`https://social-plugins.line.me/lineit/share?text=${encodeURIComponent(text)}`, "_blank");
+                  }} style={{
+                    padding: "8px 16px", borderRadius: 10, border: "1.5px solid #06C75520",
+                    background: "#06C75508", color: "#06C755", fontSize: 12, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}>LINE</button>
+                  <button onClick={() => {
+                    const text = `${topic.title}をAIに教えて${shareScore}獲得！${shareGrade} #teachAI`;
+                    navigator.clipboard?.writeText(text);
+                  }} style={{
+                    padding: "8px 16px", borderRadius: 10, border: "1.5px solid #eee",
+                    background: "#fafafa", color: "#888", fontSize: 12, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}>コピー</button>
+                </div>
               </div>
-            </div>
+              );
+            })()}
 
             {/* Streak Display */}
             {streak.currentStreak > 0 && (
@@ -2000,15 +2200,14 @@ export default function App() {
   // ════════════════════════════════════════════════════════════
   return (
     <div className="app">
-      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
 
       {/* ── 認証ヘッダー ── */}
       <div style={{
         position: "sticky", top: 0, zIndex: 50,
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "8px 16px", background: "rgba(255,255,255,0.95)",
+        padding: "8px 12px", background: "rgba(255,255,255,0.95)",
         backdropFilter: "blur(8px)", borderBottom: "1px solid #f0f0f0",
-        marginBottom: 4,
+        marginBottom: 4, gap: 6, flexWrap: "wrap",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#222", letterSpacing: "-0.5px" }}>
@@ -2034,12 +2233,10 @@ export default function App() {
               <a href="/dashboard" style={{ padding: "5px 12px", background: "#0A2342", color: "white", borderRadius: 8, textDecoration: "none", fontSize: 12, fontWeight: 700 }}>
                 📊 ダッシュボード
               </a>
-              <button onClick={async () => {
-                  const sb = createClient();
-                  await sb.auth.signOut();
-                  setAuthUser(null);
-                  // Cookieクリア後ページリロードで完全にセッションを破棄
-                  window.location.href = "/";
+              <button onClick={() => {
+                  // サーバーサイドでCookieを完全クリア → ログインページへリダイレクト
+                  // これによりアカウント切替も正常に動作する
+                  window.location.href = "/api/auth/logout";
                 }}
                 style={{ padding: "5px 12px", background: "transparent", border: "1px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#666" }}>
                 ログアウト
@@ -2093,7 +2290,7 @@ export default function App() {
                   <Avatar char={char} size={56} expression={mood === "proud" || mood === "happy" ? "happy" : mood === "caring" ? "confused" : "neutral"} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.15rem" }}>
-                      <span style={{ fontSize: 17, fontWeight: 800, color: "#222" }}>{char.name}</span>
+                      <span style={{ fontSize: 17, fontWeight: 800, color: "#222" }}>{char.custom_name || char.name}</span>
                       <span style={{ fontSize: 11, color: cc, background: `${cc}15`, padding: "1px 6px", borderRadius: 10, fontWeight: 600 }}>{moodEmoji} {moodLabel}</span>
                     </div>
                     <div style={{ fontSize: 12, color: cc, lineHeight: 1.4, marginBottom: "0.3rem", fontWeight: 600 }}>
@@ -2101,7 +2298,7 @@ export default function App() {
                     </div>
                     <div style={{ fontSize: 11, color: "#999", lineHeight: 1.3, marginBottom: "0.4rem" }}>
                       {profile.length === 0
-                        ? `${char.name}に何か教えてみよう！`
+                        ? `${char.custom_name || char.name}に何か教えてみよう！`
                         : `${profile.length}回教えてくれたね！`
                       }
                     </div>
@@ -2153,10 +2350,20 @@ export default function App() {
 
                       {/* テキスト入力 */}
                       {inputMode === "text" && (
-                        <textarea value={inputText}
-                          onChange={e => { setInputText(e.target.value); setFileContent(""); }}
-                          placeholder="AIに教えたい内容を自由に書いてください。例: 光合成の仕組み、量子コンピュータとは、三角関数の公式..."
-                          rows={4} className="input-base" style={{ resize: "vertical", marginBottom: 0 }} />
+                        <>
+                          <textarea value={inputText}
+                            onChange={e => { const v = e.target.value; if (v.length <= TEXT_INPUT_LIMIT) { setInputText(v); setFileContent(""); } }}
+                            placeholder="AIに教えたい内容を自由に書いてください。例: 光合成の仕組み、量子コンピュータとは、三角関数の公式..."
+                            rows={4} className="input-base" style={{ resize: "vertical", marginBottom: 0 }} />
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                            <span style={{ fontSize: 10, color: inputText.length > AUTO_SPLIT_THRESHOLD ? "#F5A623" : "#ccc" }}>
+                              {inputText.length > AUTO_SPLIT_THRESHOLD && "⚠️ 長文は複数セッションに分割されます "}
+                            </span>
+                            <span style={{ fontSize: 10, color: inputText.length > TEXT_INPUT_LIMIT * 0.9 ? "#FF6B6B" : "#ccc" }}>
+                              {inputText.length.toLocaleString()} / {TEXT_INPUT_LIMIT.toLocaleString()}文字（約{(new Blob([inputText]).size / 1024).toFixed(0)}KB）
+                            </span>
+                          </div>
+                        </>
                       )}
 
                       {/* URL入力 */}
@@ -2186,12 +2393,12 @@ export default function App() {
                             cursor: "pointer", textAlign: "center", fontFamily: "inherit",
                             color: "#999", fontSize: 13,
                           }}>
-                          📎 ファイルを選択（PDF, DOCX, XLSX, PPTX, 画像...）
+                          📎 ファイルを選択（PDF, DOCX, XLSX, PPTX, 画像...最大10MB）
                         </button>
                       )}
                       {(fileContent || fileData) && fileInfo && (
-                        <div style={{ fontSize: 12, color: "#4ECDC4", padding: "0.5rem 0.75rem", background: "#f0fffe", borderRadius: 10, marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span>✓ {fileInfo.name}（{(fileInfo.size / 1024).toFixed(1)} KB）</span>
+                        <div style={{ fontSize: 12, color: "#4ECDC4", padding: "0.5rem 0.75rem", background: "#f0fffe", borderRadius: 10, marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                          <span>✓ {fileInfo.name}（{fileInfo.size > 1024 * 1024 ? `${(fileInfo.size / (1024 * 1024)).toFixed(1)} MB` : `${(fileInfo.size / 1024).toFixed(1)} KB`}）</span>
                           <button onClick={() => { setFileContent(""); setFileData(null); setFileInfo(null); setActiveInputTab("text"); }} style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: 14, padding: 0 }}>×</button>
                         </div>
                       )}
@@ -2255,7 +2462,7 @@ export default function App() {
                     </div>
 
                     {/* スコア詳細 */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+                    <div className="grid-2col" style={{ marginBottom: "1rem" }}>
                       <div style={{ background: "#f0fffe", borderRadius: 12, padding: "0.75rem" }}>
                         <div style={{ fontSize: 11, color: "#4ECDC4", fontWeight: 700, marginBottom: "0.4rem" }}>✓ 教えられた概念</div>
                         {historyPopup.mastered.length ? historyPopup.mastered.map(c => (
@@ -2369,6 +2576,44 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* テキスト分割モーダル */}
+      {showSplitModal && splitParts.length > 1 && (
+        <div className="overlay" onClick={() => setShowSplitModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: "0.25rem" }}>📚 テキストを分割</div>
+            <div style={{ fontSize: 12, color: "#bbb", marginBottom: "1rem" }}>
+              入力テキストが長いため、{splitParts.length}つのセッションに分割します。
+              1つずつAIに教えることで、より深い理解が得られます。
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1rem", maxHeight: 200, overflowY: "auto" }}>
+              {splitParts.map((part, i) => (
+                <div key={i} style={{
+                  padding: "0.5rem 0.75rem", borderRadius: 10,
+                  background: i === splitIndex ? `${cc}10` : "#fafafa",
+                  border: `1.5px solid ${i === splitIndex ? cc : "#eee"}`,
+                  cursor: "pointer", fontSize: 12, color: "#555",
+                }} onClick={() => setSplitIndex(i)}>
+                  <div style={{ fontWeight: 700, marginBottom: 2 }}>パート {i + 1} / {splitParts.length}</div>
+                  <div style={{ color: "#999" }}>{part.slice(0, 80)}...</div>
+                  <div style={{ fontSize: 10, color: "#ccc", marginTop: 2 }}>{part.length.toLocaleString()}文字</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button className="btn-primary" onClick={() => {
+                setInputText(splitParts[splitIndex]);
+                setShowSplitModal(false);
+                setTimeout(() => handleStart(), 100);
+              }} style={{ flex: 1, marginTop: 0, background: cc }}>
+                パート{splitIndex + 1}から開始
+              </button>
+              <button className="btn-primary" onClick={() => setShowSplitModal(false)}
+                style={{ flex: 0, marginTop: 0, background: "#f5f5f5", color: "#555", padding: "0.875rem 1rem" }}>閉じる</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* API Modal */}
       {showApiModal && (() => {

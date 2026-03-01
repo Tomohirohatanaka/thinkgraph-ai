@@ -414,3 +414,54 @@ input, textarea, select {
   animation: expressionPop 0.3s ease-out forwards;
   z-index: 5;
 }
+
+/* ── Responsive grid helper ── */
+.grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+@media (max-width: 480px) {
+  .grid-2col { grid-template-columns: 1fr; }
+}
+
+/* ── Responsive: スマートフォン対応 ── */
+/* 2列グリッドを小画面で1列に */
+@media (max-width: 480px) {
+  .result-inner .card { padding: 1rem; }
+  .chat-bubble { max-width: min(85%, 480px); font-size: 13px; }
+  .session-header { padding: 0.5rem 0.75rem; padding-top: calc(0.5rem + var(--safe-top)); }
+  .input-bar { padding: 0.5rem 0.625rem; }
+  .home-wrap { padding: 1.25rem 1rem calc(1.25rem + var(--safe-bottom)); }
+  .modal { padding: 1.25rem 1rem; padding-bottom: calc(1.25rem + var(--safe-bottom)); }
+}
+
+/* 認証ヘッダーのレスポンシブ */
+@media (max-width: 360px) {
+  .tab-btn { font-size: 11px; padding: 0.45rem 0.3rem; }
+}
+
+/* input range スタイル */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: #e0e0e0;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid #fff;
+}
