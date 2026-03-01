@@ -2,19 +2,19 @@ import type { Metadata } from "next";
 import LandingClient from "./LandingClient";
 
 export const metadata: Metadata = {
-  title: "teachAI — AIに教えて、最速で学ぶ",
-  description: "YouTube・PDF・Webサイトの内容をAIキャラクターに教えることで、理解度を定量化。学術論文に基づくピアチュータリング手法で、記憶定着率が2.5倍に。",
+  title: "teachAI — 認知科学 × AIで学習効率を18倍に",
+  description: "認知科学に基づく「教えて学ぶ」AIプラットフォーム。YouTube・PDF・Web等の内容をAIプロテジェに教えることで記憶定着率90%を実現。SOLO Taxonomy 5軸評価、音声対応、知識グラフ可視化。Free/Pro/Teamプラン対応。",
   openGraph: {
-    title: "teachAI — AIに教えて、最速で学ぶ",
-    description: "YouTube・PDF・Webサイトの内容をAIキャラクターに教えることで、理解度を定量化。",
+    title: "teachAI — 認知科学 × AIで学習効率を18倍に",
+    description: "「教える」ことが最高の学習法。認知科学の知見をAIで誰もが実践できるEdTechプラットフォーム。",
     type: "website",
     locale: "ja_JP",
     siteName: "teachAI",
   },
   twitter: {
     card: "summary_large_image",
-    title: "teachAI — AIに教えて、最速で学ぶ",
-    description: "YouTube・PDF・Webサイトの内容をAIキャラクターに教えることで、理解度を定量化。",
+    title: "teachAI — 認知科学 × AIで学習効率を18倍に",
+    description: "「教える」ことが最高の学習法。認知科学の知見をAIで誰もが実践できるEdTechプラットフォーム。",
   },
 };
 
