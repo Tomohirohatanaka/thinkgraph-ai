@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 // ─── Types ────────────────────────────────────────────────────
 type Screen = "home" | "char_detail" | "session" | "result";
@@ -18,13 +18,27 @@ interface TopicData {
 
 interface ScoreData { coverage: number; depth: number; clarity: number; total: number; }
 
+interface ScoreV3Data {
+  raw: { completeness: number; depth: number; clarity: number; structural_coherence: number; pedagogical_insight: number };
+  weighted: number;
+  grade: "A" | "B" | "C" | "D" | "F";
+  conjunctive_pass: boolean;
+  insight: string;
+  kb_mode: string;
+  rqs_avg: number;
+}
+
 interface SessionResult {
   score: ScoreData; raw_score: ScoreData;
   feedback: string; mastered: string[]; gaps: string[]; message: string;
   leading_penalty: number; gave_up_penalty: number;
-  grade?: "S" | "A" | "B" | "C" | "D";
+  grade?: "S" | "A" | "B" | "C" | "D" | "F";
   insight?: string;
   score_breakdown?: { coverage: number; depth: number; clarity: number; structural_coherence: number; spontaneity: number; total: number };
+  // v3 fields
+  score_v3?: ScoreV3Data;
+  scoring_version?: "v2" | "v3";
+  kb_mode?: string;
 }
 
 interface GrowthStage { label: string; threshold: number; }
@@ -620,6 +634,15 @@ export default function App() {
   const [showQuit, setShowQuit] = useState(false);
   const [quitMsg, setQuitMsg] = useState("");
 
+  // v3 状態
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [rqsHistory, setRqsHistory] = useState<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [stateHistory, setStateHistory] = useState<any[]>([]);
+  const [currentState, setCurrentState] = useState("ORIENT");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [kbSignals, setKbSignals] = useState<any[]>([]);
+
   // 演出
   const [reaction, setReaction] = useState<{ type: "praise" | "confused"; key: number } | null>(null);
   const [stageUp, setStageUp] = useState<{ char: Character; newStage: string } | null>(null);
@@ -636,12 +659,23 @@ export default function App() {
   const gaveUpRef = useRef(0);
   const cfRef = useRef(0);
   const charRef = useRef<Character | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rqsRef = useRef<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stateHistRef = useRef<any[]>([]);
+  const curStateRef = useRef("ORIENT");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const kbRef = useRef<any[]>([]);
   turnsRef.current = turns;
   topicRef.current = topic;
   leadingRef.current = leadingPenalty;
   gaveUpRef.current = gaveUpCount;
   cfRef.current = consecutiveFail;
   charRef.current = char;
+  rqsRef.current = rqsHistory;
+  stateHistRef.current = stateHistory;
+  curStateRef.current = currentState;
+  kbRef.current = kbSignals;
 
   const cc = char?.color || "#FF6B6B";
   const userTurns = turns.filter(t => t.role === "user").length;
@@ -778,6 +812,11 @@ export default function App() {
           leadingPenalty: lp,
           gaveUpCount: gu,
           consecutiveFail: cf,
+          // v3 parameters
+          rqsHistory: rqsRef.current,
+          stateHistory: stateHistRef.current,
+          currentState: curStateRef.current,
+          kbSignals: kbRef.current,
         }),
       });
 
@@ -812,6 +851,24 @@ export default function App() {
       const newCf = isFail ? cf + 1 : 0;
       setConsecutiveFail(newCf); cfRef.current = newCf;
 
+      // v3: RQS・状態遷移・KB更新（通常ターンでも返る）
+      if (data.rqs) {
+        setRqsHistory(prev => [...prev, data.rqs]);
+        rqsRef.current = [...rqsRef.current, data.rqs];
+      }
+      if (data.next_state) {
+        const transition = { turn: turns.filter(t => t.role === "user").length + 1, from_state: curStateRef.current, to_state: data.next_state, rqs: data.rqs?.score ?? 0, reason: data.state_reason || "" };
+        setStateHistory(prev => [...prev, transition]);
+        stateHistRef.current = [...stateHistRef.current, transition];
+        setCurrentState(data.next_state);
+        curStateRef.current = data.next_state;
+      }
+      if (data.kb) {
+        const kbEntry = { turn: turns.filter(t => t.role === "user").length + 1, ...data.kb };
+        setKbSignals(prev => [...prev, kbEntry]);
+        kbRef.current = [...kbRef.current, kbEntry];
+      }
+
       // 演出
       const praiseKw = ["なるほど", "わかった", "正確", "天才", "すごい", "最高", "完璧", "悪くない", "さすが", "正しい", "そういうこと", "評価"];
       if (praiseKw.some(k => aiText.includes(k))) setReaction({ type: "praise", key: Date.now() });
@@ -819,7 +876,7 @@ export default function App() {
 
       if (data.type === "complete") {
         const score = data.score || { coverage: 50, depth: 50, clarity: 50, total: 50 };
-        setResult({
+        const sessionResult: SessionResult = {
           score,
           raw_score: data.raw_score || score,
           feedback: data.feedback || "",
@@ -828,7 +885,15 @@ export default function App() {
           message: aiText,
           leading_penalty: data.leading_penalty || 0,
           gave_up_penalty: data.gave_up_penalty || 0,
-        });
+          grade: data.grade,
+          insight: data.insight || (data.score_v3?.insight),
+          score_breakdown: data.score_breakdown,
+          // v3
+          score_v3: data.score_v3 || undefined,
+          scoring_version: data.scoring_version,
+          kb_mode: data.kb_mode,
+        };
+        setResult(sessionResult);
 
         const entry: ProfileEntry = {
           id: Date.now().toString(),
@@ -854,17 +919,44 @@ export default function App() {
         }
 
         // セッション完了後にキャラを進化させる（非同期・バックグラウンド）
-        const resultForEvolve: SessionResult = {
-          score,
-          raw_score: data.raw_score || score,
-          feedback: data.feedback || "",
-          mastered: Array.isArray(data.mastered) ? data.mastered : [],
-          gaps: Array.isArray(data.gaps) ? data.gaps : [],
-          message: aiText,
-          leading_penalty: data.leading_penalty || 0,
-          gave_up_penalty: data.gave_up_penalty || 0,
-        };
-        evolveChar(resultForEvolve, td);
+        evolveChar(sessionResult, td);
+
+        // v3: Elo Rating 更新（バックグラウンド）
+        if (data.score_v3) {
+          fetch("/api/elo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              topic: td.title,
+              scores: data.score_v3.raw,
+            }),
+          }).catch(() => {});
+        }
+
+        // Supabase: セッション保存（認証ユーザーのみ、バックグラウンド）
+        if (isSupabaseConfigured()) {
+          try {
+            const supabase = createClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              const v3r = data.score_v3?.raw;
+              await supabase.from("sessions").insert({
+                user_id: user.id,
+                topic: td.title,
+                mode: td.mode,
+                status: "completed",
+                score_total: score.total,
+                grade: data.grade || null,
+                key_concepts: Array.isArray(data.mastered) ? data.mastered : [],
+                score_knowledge_fidelity: data.score_breakdown?.coverage ?? (v3r ? (v3r.completeness - 1) * 25 : null),
+                score_structural_integrity: data.score_breakdown?.structural_coherence ?? (v3r ? (v3r.structural_coherence - 1) * 25 : null),
+                score_hypothesis_generation: data.score_breakdown?.spontaneity ?? (v3r ? (v3r.pedagogical_insight - 1) * 25 : null),
+                score_thinking_depth: data.score_breakdown?.depth ?? (v3r ? (v3r.depth - 1) * 25 : null),
+                messages: turnsRef.current,
+              });
+            }
+          } catch { /* Supabase not available */ }
+        }
 
         setVoiceState("speaking");
         synth.speak(aiText, () => {
@@ -910,6 +1002,11 @@ export default function App() {
       setResult(null);
       setLeadingPenalty(0); setGaveUpCount(0); setConsecutiveFail(0);
       leadingRef.current = 0; gaveUpRef.current = 0; cfRef.current = 0;
+      // v3 state reset
+      setRqsHistory([]); rqsRef.current = [];
+      setStateHistory([]); stateHistRef.current = [];
+      setCurrentState("ORIENT"); curStateRef.current = "ORIENT";
+      setKbSignals([]); kbRef.current = [];
       setReaction(null);
       setScreen("session");
 
@@ -1223,6 +1320,8 @@ export default function App() {
                   setShowQuit(false);
                   setTurns([]); setLeadingPenalty(0); setGaveUpCount(0); setConsecutiveFail(0);
                   leadingRef.current = 0; gaveUpRef.current = 0; cfRef.current = 0;
+                  setRqsHistory([]); rqsRef.current = []; setStateHistory([]); stateHistRef.current = [];
+                  setCurrentState("ORIENT"); curStateRef.current = "ORIENT"; setKbSignals([]); kbRef.current = [];
                   setTimeout(() => {
                     const introText = charRef.current?.intro || topic.first_prompt || "";
                     setTurns([{ role: "ai", text: introText }]);
@@ -1242,10 +1341,21 @@ export default function App() {
   //  RESULT SCREEN
   // ════════════════════════════════════════════════════════════
   if (screen === "result" && result && topic) {
+    const isV3 = !!result.score_v3;
     const total = result.score.total;
-    const topEmoji = total >= 85 ? "🎉" : total >= 70 ? "✨" : total >= 50 ? "💪" : "📚";
-    const headline = total >= 85 ? "完璧な説明！" : total >= 70 ? "よくできました！" : total >= 50 ? "もう少し深めよう！" : "教材を読み直そう";
-    const hasPenalty = result.leading_penalty > 0 || result.gave_up_penalty > 0;
+    const v3w = result.score_v3?.weighted ?? 0;
+    const displayScore = isV3 ? v3w.toFixed(1) : String(total);
+    const displayMax = isV3 ? "/ 5.0" : "/ 100";
+    const grade = result.grade || result.score_v3?.grade;
+    const topEmoji = isV3
+      ? (v3w >= 4.2 ? "🎉" : v3w >= 3.4 ? "✨" : v3w >= 2.6 ? "💪" : "📚")
+      : (total >= 85 ? "🎉" : total >= 70 ? "✨" : total >= 50 ? "💪" : "📚");
+    const headline = isV3
+      ? (v3w >= 4.2 ? "完璧な説明！" : v3w >= 3.4 ? "よくできました！" : v3w >= 2.6 ? "もう少し深めよう！" : "教材を読み直そう")
+      : (total >= 85 ? "完璧な説明！" : total >= 70 ? "よくできました！" : total >= 50 ? "もう少し深めよう！" : "教材を読み直そう");
+    const hasPenalty = !isV3 && (result.leading_penalty > 0 || result.gave_up_penalty > 0);
+    const gradeColor = (g?: string) =>
+      g === "S" ? "#FFD700" : g === "A" ? cc : g === "B" ? "#4ECDC4" : g === "C" ? "#F5A623" : "#FF6B6B";
 
     return (
       <div className="app" style={{ overflowY: "auto" }}>
@@ -1264,51 +1374,121 @@ export default function App() {
                   <span style={{ fontSize: 12, color: cc, fontWeight: 600 }}>{char.name} との学習セッション</span>
                 </div>
               )}
+              {isV3 && (
+                <div style={{ marginTop: "0.4rem", fontSize: 10, color: "#aaa" }}>SOLO Taxonomy v3</div>
+              )}
             </div>
 
             {/* Score */}
             <div className="card" style={{ marginBottom: "1rem" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", flexWrap: "wrap", gap: "0.5rem", marginBottom: result.grade ? "1rem" : 0 }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{total}</div>
-                  {result.grade && (
-                    <div style={{
-                      display: "inline-block", padding: "2px 12px", borderRadius: 20,
-                      background: result.grade === "S" ? "#FFD700" : result.grade === "A" ? cc : result.grade === "B" ? "#4ECDC4" : result.grade === "C" ? "#F5A623" : "#FF6B6B",
-                      color: result.grade === "S" ? "#000" : "#fff",
-                      fontSize: 13, fontWeight: 800, marginTop: "0.3rem",
-                    }}>Grade {result.grade}</div>
-                  )}
-                  <div style={{ fontSize: 11, color: "#bbb", marginTop: "0.2rem" }}>総合スコア</div>
-                </div>
-                <Ring value={result.score.coverage} color="#FF6B6B" label="網羅性" />
-                <Ring value={result.score.depth} color="#4ECDC4" label="深さ" />
-                <Ring value={result.score.clarity} color="#45B7D1" label="明瞭さ" />
-              </div>
-              {result.score_breakdown && (
-                <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
-                  {[
-                    { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
-                    { key: "spontaneity", label: "自発性", color: "#E67E22" },
-                  ].map(({ key, label, color }) => {
-                    const val = (result.score_breakdown as Record<string, number>)[key] ?? 0;
-                    return (
-                      <div key={key} style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
-                        <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}</div>
-                        <div style={{ fontSize: 10, color: "#bbb" }}>{label}</div>
+              {isV3 && result.score_v3 ? (
+                <>
+                  {/* v3 Score Display */}
+                  <div style={{ textAlign: "center", marginBottom: "1rem" }}>
+                    <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{displayScore}</div>
+                    <div style={{ fontSize: 13, color: "#bbb" }}>{displayMax}</div>
+                    {grade && (
+                      <div style={{
+                        display: "inline-block", padding: "2px 14px", borderRadius: 20,
+                        background: gradeColor(grade), color: grade === "S" ? "#000" : "#fff",
+                        fontSize: 14, fontWeight: 800, marginTop: "0.4rem",
+                      }}>Grade {grade}</div>
+                    )}
+                    {result.score_v3.conjunctive_pass === false && (
+                      <div style={{ fontSize: 11, color: "#FF6B6B", marginTop: "0.3rem" }}>
+                        ⚠️ 一部の次元が基準未満のため、グレードが制限されています
                       </div>
-                    );
-                  })}
-                  {result.insight && (
-                    <div style={{ flex: 3, background: `${cc}08`, borderRadius: 10, padding: "0.5rem 0.75rem", display: "flex", alignItems: "center" }}>
-                      <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
+                    )}
+                  </div>
+                  {/* 5D Bars */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                    {[
+                      { key: "completeness", label: "網羅性", color: "#FF6B6B" },
+                      { key: "depth", label: "深さ", color: "#4ECDC4" },
+                      { key: "clarity", label: "明晰さ", color: "#45B7D1" },
+                      { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
+                      { key: "pedagogical_insight", label: "教育的洞察", color: "#E67E22" },
+                    ].map(({ key, label, color }) => {
+                      const val = result.score_v3!.raw[key as keyof typeof result.score_v3.raw] ?? 0;
+                      return (
+                        <div key={key}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.2rem" }}>
+                            <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
+                            <span style={{ fontSize: 13, fontWeight: 800, color }}>{val} / 5</span>
+                          </div>
+                          <div style={{ height: 8, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ width: `${(val / 5) * 100}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.8s ease" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* KB Mode & RQS */}
+                  <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+                    <div style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.kb_mode === "building" ? "#4ECDC4" : result.score_v3.kb_mode === "telling" ? "#F5A623" : "#45B7D1" }}>
+                        {result.score_v3.kb_mode === "building" ? "📖 構築型" : result.score_v3.kb_mode === "telling" ? "📢 伝達型" : "🔄 混合型"}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#bbb" }}>学習スタイル</div>
+                    </div>
+                    <div style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.rqs_avg >= 0.6 ? "#4ECDC4" : result.score_v3.rqs_avg >= 0.3 ? "#F5A623" : "#FF6B6B" }}>
+                        {(result.score_v3.rqs_avg * 100).toFixed(0)}%
+                      </div>
+                      <div style={{ fontSize: 10, color: "#bbb" }}>応答品質 (RQS)</div>
+                    </div>
+                    {result.insight && (
+                      <div style={{ flex: 2, background: `${cc}08`, borderRadius: 10, padding: "0.5rem 0.75rem", display: "flex", alignItems: "center" }}>
+                        <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* v2 Score Display (legacy) */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", flexWrap: "wrap", gap: "0.5rem", marginBottom: grade ? "1rem" : 0 }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{total}</div>
+                      {grade && (
+                        <div style={{
+                          display: "inline-block", padding: "2px 12px", borderRadius: 20,
+                          background: gradeColor(grade), color: grade === "S" ? "#000" : "#fff",
+                          fontSize: 13, fontWeight: 800, marginTop: "0.3rem",
+                        }}>Grade {grade}</div>
+                      )}
+                      <div style={{ fontSize: 11, color: "#bbb", marginTop: "0.2rem" }}>総合スコア</div>
+                    </div>
+                    <Ring value={result.score.coverage} color="#FF6B6B" label="網羅性" />
+                    <Ring value={result.score.depth} color="#4ECDC4" label="深さ" />
+                    <Ring value={result.score.clarity} color="#45B7D1" label="明瞭さ" />
+                  </div>
+                  {result.score_breakdown && (
+                    <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+                      {[
+                        { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
+                        { key: "spontaneity", label: "自発性", color: "#E67E22" },
+                      ].map(({ key, label, color }) => {
+                        const val = (result.score_breakdown as Record<string, number>)[key] ?? 0;
+                        return (
+                          <div key={key} style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
+                            <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}</div>
+                            <div style={{ fontSize: 10, color: "#bbb" }}>{label}</div>
+                          </div>
+                        );
+                      })}
+                      {result.insight && (
+                        <div style={{ flex: 3, background: `${cc}08`, borderRadius: 10, padding: "0.5rem 0.75rem", display: "flex", alignItems: "center" }}>
+                          <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </>
               )}
             </div>
 
-            {/* Penalty */}
+            {/* Penalty (v2 only) */}
             {hasPenalty && (
               <div className="card" style={{ marginBottom: "1rem", background: "#fff8f8", borderColor: "#FF6B6B30" }}>
                 <div style={{ fontSize: 11, color: "#FF6B6B", fontWeight: 700, marginBottom: "0.5rem" }}>⚠️ スコア補正</div>
@@ -1361,6 +1541,8 @@ export default function App() {
                 setTurns([]); setResult(null);
                 setLeadingPenalty(0); setGaveUpCount(0); setConsecutiveFail(0);
                 leadingRef.current = 0; gaveUpRef.current = 0; cfRef.current = 0;
+                setRqsHistory([]); rqsRef.current = []; setStateHistory([]); stateHistRef.current = [];
+                setCurrentState("ORIENT"); curStateRef.current = "ORIENT"; setKbSignals([]); kbRef.current = [];
                 setScreen("session");
                 setTimeout(() => {
                   const introText = charRef.current?.intro || topic.first_prompt || "";
