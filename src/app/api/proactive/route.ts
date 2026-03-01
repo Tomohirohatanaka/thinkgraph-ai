@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { resolveApiKey } from "@/lib/trial-key";
 import {
   recommendNextConcepts,
   type KnowledgeGraph,
@@ -32,10 +33,12 @@ export async function POST(req: NextRequest) {
       profile: ProfileEntry[];
     };
 
-    if (!apiKey?.length) {
+    const resolved = resolveApiKey(apiKey);
+    if (!resolved) {
       return NextResponse.json({ error: "APIキーが必要です" }, { status: 400 });
     }
-    const provider = detectProvider(apiKey);
+    const effectiveKey = resolved.key;
+    const provider = detectProvider(effectiveKey);
 
     const recommendations = graph ? recommendNextConcepts(graph, 3) : [];
     const recentTopics = profile.slice(-3).map(p => p.title);
@@ -50,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     const llmRes = await callLLM({
       provider,
-      apiKey,
+      apiKey: effectiveKey,
       messages: [{ role: 'user', content: '' }],
       maxTokens: 600,
     });

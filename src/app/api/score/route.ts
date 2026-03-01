@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { corsResponse } from "@/lib/api";
 import { createClient } from "@/lib/supabase/server";
+import { resolveApiKey } from "@/lib/trial-key";
 
 interface Message { role: "user" | "assistant"; content: string; }
 interface LogicGraph {
@@ -22,7 +23,10 @@ export async function POST(req: NextRequest) {
       apiKey: string; domain: string; idealGraph: LogicGraph;
       conversation: Message[]; mode?: string; topic?: string;
     };
-    const provider = detectProvider(apiKey);
+    const resolved = resolveApiKey(apiKey);
+    if (!resolved) return NextResponse.json({ error: "APIキーが必要です" }, { status: 400 });
+    const effectiveKey = resolved.key;
+    const provider = detectProvider(effectiveKey);
     const convText = conversation
       .filter(m => !(m.role === "user" && m.content === "面接を開始してください。"))
       .map(m => `${m.role === "user" ? "受験者" : "面接官"}: ${m.content}`)
@@ -36,7 +40,7 @@ ${convText.slice(0, 4000)}
 {"nodes":[{"id":"u1","label":"概念（8文字以内）","node_type":"problem|cause|factor|solution|concept","depth":0}],"edges":[{"source":"u1","target":"u2","relation":"causes|leads_to|part_of|prevents|requires"}]}
 JSONのみ出力。`;
 
-    const extractMsg = await callLLM({ provider, apiKey, messages: [{ role: "user", content: extractPrompt }], maxTokens: 1500 });
+    const extractMsg = await callLLM({ provider, apiKey: effectiveKey, messages: [{ role: "user", content: extractPrompt }], maxTokens: 1500 });
     const userGraph = extractJSON(extractMsg.text) as LogicGraph;
 
     const idealSummary = { nodes: idealGraph.nodes.map(n => ({ id: n.id, label: n.label, type: n.node_type, depth: n.depth })), edges: idealGraph.edges.map(e => ({ src: e.source, tgt: e.target, rel: e.relation })) };
@@ -49,7 +53,7 @@ JSONのみ出力。`;
 {"knowledge_fidelity":75,"structural_integrity":60,"hypothesis_generation":40,"thinking_depth":55,"total_score":60,"matched_concepts":["概念A"],"missing_concepts":["概念B"],"unique_insights":["視点X"],"key_feedback":"フィードバック","strength":"強み","improvement":"改善点"}
 total_score = 0.2×kf + 0.35×si + 0.25×hg + 0.2×td。JSONのみ出力。`;
 
-    const scoreMsg = await callLLM({ provider, apiKey, messages: [{ role: "user", content: scorePrompt }], maxTokens: 1000 });
+    const scoreMsg = await callLLM({ provider, apiKey: effectiveKey, messages: [{ role: "user", content: scorePrompt }], maxTokens: 1000 });
     const scores = extractJSON(scoreMsg.text) as {
       knowledge_fidelity: number; structural_integrity: number;
       hypothesis_generation: number; thinking_depth: number; total_score: number;

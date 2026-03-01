@@ -23,6 +23,7 @@ import {
   type RawScoreV3, type QuestionState, type StateTransition, type RQSResult,
 } from "@/lib/scoring-v3";
 import { callLLM, detectProvider } from "@/lib/llm";
+import { resolveApiKey } from "@/lib/trial-key";
 
 const USE_V3 = process.env.USE_V3_SCORING === "true";
 
@@ -78,10 +79,12 @@ export async function POST(req: NextRequest) {
       kbSignals?: { turn: number; mode: string; signals: unknown }[];
     };
 
-    if (!apiKey?.length) {
+    const resolved = resolveApiKey(apiKey);
+    if (!resolved) {
       return NextResponse.json({ error: "APIキーが必要です" }, { status: 400 });
     }
-    const provider = detectProvider(apiKey);
+    const effectiveKey = resolved.key;
+    const provider = detectProvider(effectiveKey);
 
     const prevUserTurns = history.filter(t => t.role === "user").length;
     const totalUserTurns = prevUserTurns + 1;
@@ -228,7 +231,7 @@ ${scoringFormat}`;
 
     const llmRes = await callLLM({
       provider,
-      apiKey,
+      apiKey: effectiveKey,
       system: shouldFinish ? finalSystem : normalSystem,
       messages,
       maxTokens: shouldFinish ? 1200 : 500,

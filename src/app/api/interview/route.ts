@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { resolveApiKey } from "@/lib/trial-key";
 
 interface LogicNode { id: string; label: string; node_type: string; depth: number; }
 interface LogicGraph { nodes: LogicNode[]; edges: unknown[]; }
@@ -12,7 +13,10 @@ export async function POST(req: NextRequest) {
       apiKey: string; domain: string; idealGraph: LogicGraph;
       conversation: Message[]; turn: number;
     };
-    const provider = detectProvider(apiKey);
+    const resolved = resolveApiKey(apiKey);
+    if (!resolved) return NextResponse.json({ error: "APIキーが必要です" }, { status: 400 });
+    const effectiveKey = resolved.key;
+    const provider = detectProvider(effectiveKey);
     const concepts = idealGraph.nodes.map((n) => n.label).join("、");
 
     const system = `あなたは${domain}の新入社員研修における思考力評価AIです。
@@ -46,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     const llmRes = await callLLM({
       provider,
-      apiKey,
+      apiKey: effectiveKey,
       messages: apiMsgs,
       maxTokens: 300,
     });
