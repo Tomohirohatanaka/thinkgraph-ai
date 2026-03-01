@@ -747,10 +747,10 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
 
 // ─── Character Detail ─────────────────────────────────────────
 function CharDetail({
-  char, profile, apiKey, evolving, onBack, accentColor,
+  char, profile, apiKey, trialAvailable, evolving, onBack, accentColor,
 }: {
   char: Character; profile: ProfileEntry[]; apiKey: string;
-  evolving: boolean; onBack: () => void; accentColor?: string;
+  trialAvailable?: boolean; evolving: boolean; onBack: () => void; accentColor?: string;
 }) {
   const n = profile.length;
   const idx = stageIndex(char, n);
@@ -851,7 +851,7 @@ function CharDetail({
           />
         )}
 
-        {!apiKey && (
+        {!apiKey && !trialAvailable && (
           <div style={{ textAlign: "center", fontSize: 12, color: "#bbb", padding: "0.75rem", background: "#fafafa", borderRadius: 12 }}>
             APIキーを設定するとセッション後に{char.name}が進化します
           </div>
@@ -877,6 +877,9 @@ export default function App() {
   const [streak, setStreak] = useState<StreakData>({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
   const [trialAvailable, setTrialAvailable] = useState(false);
   const [historyPopup, setHistoryPopup] = useState<ProfileEntry | null>(null);
+
+  // APIキーが使えるか（ユーザーキーまたはサーバーサイドキー）
+  const canUseApi = !!(apiKey || trialAvailable);
 
   const [topic, setTopic] = useState<TopicData | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -1007,12 +1010,22 @@ export default function App() {
     try { setStreak(loadStreak()); } catch {}
     if (!isOnboarded()) setShowOnboarding(true);
 
-    // Trial key check
+    // Trial key check + proactive fetch when trial available
     fetch("/api/trial").then(r => r.json()).then(d => {
-      if (d.available) setTrialAvailable(true);
+      if (d.available) {
+        setTrialAvailable(true);
+        // サーバーキーが使える場合、ユーザーキーなしでもプロアクティブ提案を取得
+        try {
+          const p = loadProfile();
+          const c = loadChar();
+          if (c && p.length > 0 && !localStorage.getItem("tg_apikey")) {
+            fetchProactive(p, c);
+          }
+        } catch { /* ignore */ }
+      }
     }).catch(() => {});
 
-    // プロアクティブ提案の取得（初回ロード時、プロフィールがある場合）
+    // プロアクティブ提案の取得（ユーザーAPIキーがある場合）
     try {
       const p = loadProfile();
       const c = loadChar();
@@ -1042,7 +1055,7 @@ export default function App() {
 
   // ── キャラ進化（セッション完了後に呼ぶ）────────────────────
   async function evolveChar(sessionResult: SessionResult, topicData: TopicData) {
-    if (!apiKey || !charRef.current) return;
+    if (!canUseApi || !charRef.current) return;
     setCharEvolving(true);
     try {
       const res = await fetch("/api/character", {
@@ -1083,7 +1096,7 @@ export default function App() {
 
   // ── プロアクティブ提案取得 ───────────────────────────────────
   async function fetchProactive(p: ProfileEntry[], c: Character | null) {
-    if (!apiKey || !c || p.length === 0) return;
+    if (!canUseApi || !c || p.length === 0) return;
     try {
       const g = loadGraph();
       const res = await fetch("/api/proactive", {
@@ -1349,7 +1362,7 @@ export default function App() {
   async function loadSkillMap() {
     const p = loadProfile();
     if (!p.length) { setSkillError("教えた履歴がありません"); return; }
-    if (!apiKey) { setShowApiModal(true); return; }
+    if (!canUseApi) { setShowApiModal(true); return; }
     setSkillLoading(true); setSkillError("");
     try {
       const res = await fetch("/api/skills", {
@@ -1453,6 +1466,7 @@ export default function App() {
   if (screen === "char_detail" && char) return (
     <CharDetail
       char={char} profile={profile} apiKey={apiKey}
+      trialAvailable={trialAvailable}
       evolving={charEvolving}
       onBack={() => setScreen("home")}
       accentColor={cc}
@@ -1874,7 +1888,7 @@ export default function App() {
             </div>
 
             {/* 思考構造の比較（ユーザー vs 理想） */}
-            {apiKey && (
+            {canUseApi && (
               <GraphComparison
                 apiKey={apiKey}
                 topic={topic.title}
@@ -2195,7 +2209,7 @@ export default function App() {
 
               <button className="btn-ghost" onClick={() => setShowApiModal(true)}
                 style={{ display: "block", width: "100%", textAlign: "center", fontSize: 12, color: "#bbb", padding: "0.4rem 0", marginBottom: "1.5rem" }}>
-                {apiKey ? `🔑 ${detectProviderLabel(apiKey).label}` : trialAvailable ? "🎁 APIキーなしで体験可能 - お試しモードで体験中" : "⚠️ APIキーを設定してAIと学習を始めましょう"}
+                {apiKey ? `🔑 ${detectProviderLabel(apiKey).label}` : trialAvailable ? "✨ すぐに使えます" : "⚠️ APIキーを設定してAIと学習を始めましょう"}
               </button>
 
 
@@ -2413,7 +2427,7 @@ export default function App() {
 
               {trialAvailable && !apiKey && (
                 <div style={{ fontSize: 12, color: "#10B981", background: "#ECFDF5", padding: "0.5rem 0.75rem", borderRadius: 8, marginBottom: "0.5rem", border: "1px solid #A7F3D0" }}>
-                  🎁 お試しモードが有効です。APIキーなしでもすぐに体験できます。
+                  ✨ APIキーなしでも全機能が使えます。自分のキーを設定するとプロバイダーを選択できます。
                 </div>
               )}
 
@@ -2424,7 +2438,7 @@ export default function App() {
                 </button>
                 {trialAvailable && !apiKey ? (
                   <button className="btn-primary" onClick={() => setShowApiModal(false)}
-                    style={{ flex: 1, marginTop: 0, background: "#10B981", color: "white" }}>🎁 お試しで始める</button>
+                    style={{ flex: 1, marginTop: 0, background: "#10B981", color: "white" }}>そのまま使う</button>
                 ) : (
                   <button className="btn-primary" onClick={() => setShowApiModal(false)}
                     style={{ flex: 1, marginTop: 0, background: "#f5f5f5", color: "#555" }}>閉じる</button>
