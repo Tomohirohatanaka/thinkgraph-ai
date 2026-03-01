@@ -155,7 +155,7 @@ async function extractWebPage(url: string): Promise<ExtractResult> {
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; teachAI/1.0; +https://thinkgraph-ai.vercel.app)",
+        "User-Agent": "Mozilla/5.0 (compatible; teachAI/1.0; +https://teachai.vercel.app)",
         "Accept": "text/html,application/xhtml+xml",
       },
       signal: AbortSignal.timeout(10000),

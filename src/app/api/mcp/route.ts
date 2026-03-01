@@ -23,7 +23,7 @@ const SERVER_INFO = {
   name: "teachai-mcp",
   version: "1.0.0",
   description: "teachAI: AIキャラクターに教えることで学ぶ学習プラットフォームのMCPサーバー",
-  contact: { url: "https://thinkgraph-ai.vercel.app" },
+  contact: { url: process.env.NEXT_PUBLIC_SITE_URL || "https://teachai.vercel.app" },
   capabilities: {
     tools: { listChanged: false },
     resources: {},
