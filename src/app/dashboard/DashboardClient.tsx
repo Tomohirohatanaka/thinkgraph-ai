@@ -33,11 +33,59 @@ function formatDuration(sec: number) {
 
 // Character avatars for dashboard selection
 const CHARACTER_PRESETS = [
-  { emoji: "👧", name: "ミオ", color: "#FF6B9D", personality: "元気で好奇心旺盛" },
-  { emoji: "👦", name: "ソラ", color: "#45B7D1", personality: "冷静で論理的" },
-  { emoji: "🧑", name: "ハル", color: "#4ECDC4", personality: "優しくて丁寧" },
-  { emoji: "👩", name: "リン", color: "#8E44AD", personality: "クールで知的" },
+  { id: "mio",  emoji: "👧", name: "ミオ", color: "#FF6B9D", personality: "元気で好奇心旺盛", accent: "#FF9EC6" },
+  { id: "sora", emoji: "👦", name: "ソラ", color: "#45B7D1", personality: "冷静で論理的",     accent: "#6DD3E8" },
+  { id: "haru", emoji: "🧑", name: "ハル", color: "#4ECDC4", personality: "優しくて丁寧",     accent: "#7EEAE0" },
+  { id: "rin",  emoji: "👩", name: "リン", color: "#8E44AD", personality: "クールで知的",     accent: "#A855F7" },
 ];
+
+// SVGキャラクターイラスト
+const CHAR_FACE: Record<string, { face: string; hair: string; accent: string }> = {
+  mio:  { face: "#FFE0C2", hair: "#FF6B9D", accent: "#FF9EC6" },
+  sora: { face: "#FFE0C2", hair: "#3A8BD2", accent: "#45B7D1" },
+  haru: { face: "#FFE0C2", hair: "#2EAD9A", accent: "#4ECDC4" },
+  rin:  { face: "#FFE0C2", hair: "#7B3FA0", accent: "#A855F7" },
+};
+
+function CharAvatar({ charId, color, size = 56 }: { charId: string; color: string; size?: number }) {
+  const illust = CHAR_FACE[charId] || CHAR_FACE.mio;
+  const r = size / 2;
+  const uid = `dash_${charId}_${size}`;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ filter: `drop-shadow(0 2px ${size * 0.08}px ${color}30)` }}>
+      <defs>
+        <radialGradient id={`${uid}_bg`} cx="50%" cy="40%" r="55%">
+          <stop offset="0%" stopColor={`${color}35`} />
+          <stop offset="100%" stopColor={`${color}12`} />
+        </radialGradient>
+        <radialGradient id={`${uid}_face`} cx="45%" cy="35%" r="50%">
+          <stop offset="0%" stopColor="#FFF0E0" />
+          <stop offset="100%" stopColor={illust.face} />
+        </radialGradient>
+        <linearGradient id={`${uid}_hair`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={illust.hair} />
+          <stop offset="100%" stopColor={illust.accent} />
+        </linearGradient>
+        <linearGradient id={`${uid}_ring`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={color} />
+          <stop offset="50%" stopColor={illust.accent} />
+          <stop offset="100%" stopColor={color} />
+        </linearGradient>
+      </defs>
+      <circle cx={r} cy={r} r={r - 1} fill="none" stroke={`url(#${uid}_ring)`} strokeWidth={size * 0.04} opacity="0.7" />
+      <circle cx={r} cy={r} r={r - size * 0.06} fill={`url(#${uid}_bg)`} />
+      <circle cx={r} cy={r * 1.05} r={r * 0.42} fill={`url(#${uid}_face)`} />
+      <ellipse cx={r} cy={r * 0.72} rx={r * 0.48} ry={r * 0.38} fill={`url(#${uid}_hair)`} />
+      <circle cx={r - r * 0.15} cy={r * 1.0} r={r * 0.06} fill="#333" />
+      <circle cx={r + r * 0.15} cy={r * 1.0} r={r * 0.06} fill="#333" />
+      <circle cx={r - r * 0.13} cy={r * 0.97} r={r * 0.025} fill="#fff" />
+      <circle cx={r + r * 0.17} cy={r * 0.97} r={r * 0.025} fill="#fff" />
+      <path d={`M ${r - r * 0.1} ${r * 1.18} Q ${r} ${r * 1.26} ${r + r * 0.1} ${r * 1.18}`} fill="none" stroke="#E8846B" strokeWidth={r * 0.035} strokeLinecap="round" />
+      <circle cx={r - r * 0.32} cy={r * 1.12} r={r * 0.08} fill={`${color}25`} />
+      <circle cx={r + r * 0.32} cy={r * 1.12} r={r * 0.08} fill={`${color}25`} />
+    </svg>
+  );
+}
 
 export default function DashboardClient({ user, sessions, stats, concepts }: {
   user: User; sessions: Session[]; stats: Stats | null; concepts: Concept[];
@@ -56,6 +104,9 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
   // Streak state (loaded from localStorage)
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
+  const [charEmoji, setCharEmoji] = useState("");
+  const [charColor, setCharColor] = useState("");
+  const [charId, setCharId] = useState("");
 
   useEffect(() => {
     try {
@@ -64,7 +115,10 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
       const c = localStorage.getItem("tg_char");
       if (c) {
         const parsed = JSON.parse(c);
-        setSavedChar(parsed.name || "");
+        setSavedChar(parsed.custom_name || parsed.name || "");
+        setCharEmoji(parsed.emoji || "");
+        setCharColor(parsed.color || "");
+        setCharId(parsed.id || "");
       }
       const s = localStorage.getItem("tg_streak");
       if (s) {
@@ -74,10 +128,15 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
   }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    // router.push + refresh ではSSRのcookieが残り続けるため、
-    // window.location で完全リロードしてcookieをクリアする
-    window.location.href = "/auth/login";
+    try {
+      localStorage.removeItem("tg_char");
+      localStorage.removeItem("tg_profile");
+      localStorage.removeItem("tg_graph");
+      localStorage.removeItem("tg_apikey");
+      localStorage.removeItem("tg_streak");
+      localStorage.removeItem("tg_app_version");
+    } catch {}
+    window.location.href = "/api/auth/logout";
   };
 
   const saveApiKey = () => {
@@ -90,7 +149,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
   const selectCharacter = (preset: typeof CHARACTER_PRESETS[0]) => {
     const char = {
-      id: "my_char", name: preset.name, emoji: preset.emoji, color: preset.color,
+      id: preset.id, name: preset.name, emoji: preset.emoji, color: preset.color,
       personality: preset.personality + "。教えてもらうのが大好き。",
       speaking_style: "タメ口で親しみやすい。語尾に「！」「〜」が多い。",
       praise: "「えっ、すごい！！めっちゃわかった！！もっと教えて〜！」",
@@ -135,6 +194,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
         @media (min-width: 768px) { .dash-kg-grid { grid-template-columns: 2fr 1fr; } }
         .dash-settings-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .dash-settings-grid { grid-template-columns: 1fr 1fr; } }
+        .dash-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .dash-header-actions { display: flex; align-items: center; gap: 8px; }
         .dash-header-name { font-size: 13px; color: #90B8C8; display: none; }
         @media (min-width: 640px) { .dash-header-name { display: inline; } }
@@ -143,7 +203,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
       {/* HEADER */}
       <header style={{ background: BRAND.primary, color: "white", padding: "0 20px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <a href="/landing" style={{ textDecoration: "none", fontSize: 18, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
+          <a href="/" style={{ textDecoration: "none", fontSize: 18, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
             teach<span style={{ color: BRAND.accent }}>AI</span>
           </a>
           <span style={{ fontSize: 12, color: "#90B8C8", fontWeight: 500, padding: "2px 8px", background: "rgba(255,255,255,0.08)", borderRadius: 6 }}>ダッシュボード</span>
@@ -151,7 +211,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
         <div className="dash-header-actions">
           <span className="dash-header-name">{user.name || user.email}</span>
           <button onClick={() => router.push("/")} style={{ padding: "7px 18px", background: BRAND.accent, color: "white", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
-            AIに教える
+            教えに行く →
           </button>
           <button onClick={handleLogout} style={{ padding: "7px 16px", background: "transparent", color: "#90B8C8", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
             ログアウト
@@ -161,13 +221,18 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 16px" }}>
         {/* Greeting */}
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: BRAND.primary }}>
-            こんにちは、{user.name?.split(" ")[0] || "ユーザー"}さん
-          </h1>
-          <p style={{ margin: "4px 0 0", color: "#6B7280", fontSize: 13 }}>
-            教えた成果を確認しましょう
-          </p>
+        <div style={{ marginBottom: 24, display: "flex", alignItems: "center", gap: 14 }}>
+          {charId && (
+            <CharAvatar charId={charId} color={charColor || "#FF6B9D"} size={48} />
+          )}
+          <div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: BRAND.primary }}>
+              {savedChar ? `${savedChar}と${user.name?.split(" ")[0] || "あなた"}の学習記録` : `こんにちは、${user.name?.split(" ")[0] || "ユーザー"}さん`}
+            </h1>
+            <p style={{ margin: "4px 0 0", color: "#6B7280", fontSize: 13 }}>
+              {savedChar ? `${savedChar}に教えた成果を確認しましょう` : "教えた成果を確認しましょう"}
+            </p>
+          </div>
         </div>
 
         {/* KPI cards */}
@@ -186,6 +251,51 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
             </div>
           ))}
         </div>
+
+        {/* 強み・弱み分析 */}
+        {sessions.length > 0 && (() => {
+          const dims = [
+            { key: "score_knowledge_fidelity" as const, label: "概念理解度", icon: "📘" },
+            { key: "score_structural_integrity" as const, label: "構造整合度", icon: "🏗️" },
+            { key: "score_hypothesis_generation" as const, label: "仮説生成力", icon: "💡" },
+            { key: "score_thinking_depth" as const, label: "思考深度", icon: "🔬" },
+          ];
+          const dimAvgs = dims.map(d => {
+            const vals = sessions.map(s => s[d.key]).filter((v): v is number => v != null);
+            return { ...d, avg: vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0, count: vals.length };
+          }).filter(d => d.count > 0);
+          if (dimAvgs.length === 0) return null;
+          const sorted = [...dimAvgs].sort((a, b) => b.avg - a.avg);
+          const strongest = sorted[0];
+          const weakest = sorted[sorted.length - 1];
+          return (
+            <div style={{ background: "white", borderRadius: 14, padding: "18px 24px", marginBottom: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+              <div style={{ fontWeight: 700, color: BRAND.primary, fontSize: 14, marginRight: 8 }}>強み・弱み分析</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#D1FAE5", borderRadius: 10 }}>
+                <span style={{ fontSize: 16 }}>{strongest.icon}</span>
+                <span style={{ fontSize: 12, color: "#065F46", fontWeight: 700 }}>強み: {strongest.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#059669" }}>{Math.round(strongest.avg)}pt</span>
+              </div>
+              {strongest.key !== weakest.key && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#FEF3C7", borderRadius: 10 }}>
+                  <span style={{ fontSize: 16 }}>{weakest.icon}</span>
+                  <span style={{ fontSize: 12, color: "#92400E", fontWeight: 700 }}>伸びしろ: {weakest.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "#D97706" }}>{Math.round(weakest.avg)}pt</span>
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 12, marginLeft: "auto" }}>
+                {dimAvgs.map(d => (
+                  <div key={d.key} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: "#9CA3AF" }}>{d.label}</div>
+                    <div style={{ width: 40, background: "#E5E7EB", borderRadius: 3, height: 5, marginTop: 3 }}>
+                      <div style={{ width: `${d.avg}%`, background: d.key === strongest.key ? "#10B981" : d.key === weakest.key ? "#F59E0B" : BRAND.teal, height: "100%", borderRadius: 3 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "white", borderRadius: 10, padding: 4, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", width: "fit-content" }}>
@@ -335,7 +445,8 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                 </button>
               </div>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div className="dash-table-wrap">
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
                 <thead>
                   <tr style={{ background: "#F8FAFC" }}>
                     {["トピック", "モード", "グレード", "スコア", "日時", ""].map(h => (
@@ -374,6 +485,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
@@ -473,15 +585,18 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                 {CHARACTER_PRESETS.map(c => (
                   <button key={c.name} onClick={() => selectCharacter(c)}
                     style={{
-                      padding: "14px", borderRadius: 14, border: `2px solid ${savedChar === c.name ? c.color : "#eee"}`,
-                      background: savedChar === c.name ? `${c.color}10` : "#fafafa",
-                      cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.2s",
+                      padding: "16px 14px", borderRadius: 16, border: `2px solid ${savedChar === c.name ? c.color : "#eee"}`,
+                      background: savedChar === c.name ? `linear-gradient(135deg, ${c.color}12, ${c.accent}08)` : "#fafafa",
+                      cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.3s",
+                      boxShadow: savedChar === c.name ? `0 4px 20px ${c.color}20` : "none",
                     }}>
-                    <div style={{ fontSize: 36, marginBottom: 6 }}>{c.emoji}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#222" }}>{c.name}</div>
-                    <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{c.personality}</div>
+                    <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+                      <CharAvatar charId={c.id} color={c.color} size={52} />
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: savedChar === c.name ? c.color : "#222", letterSpacing: "-0.3px" }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 3, lineHeight: 1.4 }}>{c.personality}</div>
                     {savedChar === c.name && (
-                      <div style={{ fontSize: 10, color: c.color, fontWeight: 700, marginTop: 4 }}>選択中</div>
+                      <div style={{ fontSize: 10, color: "#fff", fontWeight: 700, marginTop: 6, background: c.color, padding: "3px 12px", borderRadius: 100, display: "inline-block" }}>選択中</div>
                     )}
                   </button>
                 ))}
@@ -630,6 +745,34 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                   </div>
                 </div>
               )}
+              {/* Session Feedback Summary */}
+              {(() => {
+                const scores = [selectedSession.score_knowledge_fidelity, selectedSession.score_structural_integrity, selectedSession.score_hypothesis_generation, selectedSession.score_thinking_depth].filter((v): v is number => v != null);
+                if (scores.length === 0) return null;
+                const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+                const best = [
+                  { label: "概念理解度", val: selectedSession.score_knowledge_fidelity ?? 0 },
+                  { label: "構造整合度", val: selectedSession.score_structural_integrity ?? 0 },
+                  { label: "仮説生成力", val: selectedSession.score_hypothesis_generation ?? 0 },
+                  { label: "思考深度", val: selectedSession.score_thinking_depth ?? 0 },
+                ].filter(d => d.val > 0).sort((a, b) => b.val - a.val);
+                const cn = savedChar || "AI";
+                return (
+                  <div style={{ marginTop: 16, padding: "12px 14px", background: avg >= 70 ? "#F0FDF4" : avg >= 45 ? "#FFFBEB" : "#FEF2F2", borderRadius: 12, border: `1px solid ${avg >= 70 ? "#BBF7D0" : avg >= 45 ? "#FDE68A" : "#FECACA"}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: avg >= 70 ? "#166534" : avg >= 45 ? "#92400E" : "#991B1B", marginBottom: 6 }}>
+                      {cn}からのフィードバック
+                    </div>
+                    <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>
+                      {avg >= 70
+                        ? `${best[0]?.label || "理解度"}がとても高いセッションでした！${best.length > 1 && best[best.length - 1].val < 60 ? `${best[best.length - 1].label}をもう少し意識するとさらに良くなりそうです。` : "この調子で続けましょう！"}`
+                        : avg >= 45
+                        ? `着実に理解が進んでいます。${best[0]?.label || ""}が強みです。${best.length > 1 ? `${best[best.length - 1].label}を重点的に教えるとレベルアップできそうです。` : "もう一度教えてみましょう！"}`
+                        : `まだ伸びしろがたくさんあります！もう一度ゆっくり教えてみてください。${best[0] ? `${best[0].label}は良いスタートです。` : ""}`
+                      }
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
                 <button onClick={() => { router.push(`/?topic=${encodeURIComponent(selectedSession.topic)}`); }}
                   style={{ flex: 1, padding: "10px", background: BRAND.accent, color: "white", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 600, fontFamily: "inherit" }}>

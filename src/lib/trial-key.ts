@@ -3,16 +3,26 @@
  * ─────────────────────────
  * サーバーサイドで環境変数からトライアル用APIキーを提供
  * ユーザーがAPIキー未設定でも体験できるようにする
+ *
+ * 優先順位:
+ *   1. TRIAL_API_KEY（専用トライアルキー）
+ *   2. ANTHROPIC_API_KEY（Anthropic APIキー）
+ *   3. OPENAI_API_KEY（OpenAI APIキー）
  */
 
 // サーバーサイドのみで使用（環境変数は NEXT_PUBLIC_ なし）
 export function getTrialApiKey(): string | null {
-  return process.env.TRIAL_API_KEY || null;
+  return (
+    process.env.TRIAL_API_KEY ||
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    null
+  );
 }
 
 // トライアルキーが利用可能かどうか
 export function isTrialAvailable(): boolean {
-  return !!process.env.TRIAL_API_KEY;
+  return !!getTrialApiKey();
 }
 
 // リクエストのAPIキーを解決（ユーザーキー優先、なければトライアル）

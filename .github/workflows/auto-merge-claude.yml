@@ -1,0 +1,76 @@
+name: Auto-merge Claude branches to master
+
+on:
+  push:
+    branches:
+      - 'claude/**'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create PR and auto-merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.ref.replace('refs/heads/', '');
+            const base = 'master';
+
+            // Check if PR already exists
+            const { data: existing } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branch}`,
+              base,
+              state: 'open',
+            });
+
+            let pr;
+            if (existing.length > 0) {
+              pr = existing[0];
+              core.info(`Existing PR #${pr.number} found`);
+            } else {
+              // Get latest commit message for PR title
+              const { data: commit } = await github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: context.sha,
+              });
+              const title = commit.commit.message.split('\n')[0];
+
+              const { data: created } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                head: branch,
+                base,
+                body: `Auto-generated PR from \`${branch}\`\n\nCommit: ${context.sha.substring(0, 7)} — ${title}`,
+              });
+              pr = created;
+              core.info(`Created PR #${pr.number}: ${title}`);
+            }
+
+            // Wait briefly for PR to be ready
+            await new Promise(r => setTimeout(r, 2000));
+
+            // Merge the PR
+            try {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: 'squash',
+              });
+              core.info(`PR #${pr.number} merged successfully`);
+            } catch (err) {
+              core.setFailed(`Failed to merge PR #${pr.number}: ${err.message}`);
+            }

@@ -89,7 +89,7 @@ export default function ResetPasswordPage() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/landing" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
         </a>
         <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>

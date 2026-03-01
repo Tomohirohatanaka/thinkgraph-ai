@@ -54,7 +54,7 @@ function LoginFormInner() {
         if (error.message === "Invalid login credentials") {
           setError("メールアドレスまたはパスワードが正しくありません");
         } else if (error.message === "Email not confirmed") {
-          setError("メールアドレスが確認されていません。受信箱の確認メールをご確認ください。");
+          setError("メールアドレスが確認されていません。受信箱（迷惑メールフォルダも含む）の確認メールをご確認ください。届いていない場合は再度アカウント作成をお試しください。");
         } else {
           setError(error.message);
         }
@@ -107,7 +107,7 @@ function LoginFormInner() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/landing" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
         </a>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -9,8 +9,6 @@ const PROTECTED_ROUTES = ['/dashboard'];
 const AUTH_ROUTES = ['/auth/login', '/auth/signup', '/auth/reset-password'];
 // Routes accessible regardless of auth state
 const PUBLIC_AUTH_ROUTES = ['/auth/update-password', '/auth/callback'];
-// App route — unauthenticated users redirect to LP
-const APP_ROUTE = '/';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -94,15 +92,6 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';
     url.searchParams.set('redirectTo', pathname);
-    const redirectResponse = NextResponse.redirect(url);
-    applySecurityHeaders(redirectResponse);
-    return redirectResponse;
-  }
-
-  // Redirect unauthenticated users from app root to LP
-  if (pathname === APP_ROUTE && !user) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/landing';
     const redirectResponse = NextResponse.redirect(url);
     applySecurityHeaders(redirectResponse);
     return redirectResponse;
