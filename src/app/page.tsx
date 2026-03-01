@@ -132,6 +132,47 @@ function saveGraph(g: Record<string, unknown>) {
   try { localStorage.setItem("tg_graph", JSON.stringify(g)); } catch {}
 }
 
+// ─── Streak system ──────────────────────────────────────────────
+interface StreakData {
+  currentStreak: number;
+  longestStreak: number;
+  lastDate: string;      // YYYY-MM-DD
+  totalDays: number;
+}
+function loadStreak(): StreakData {
+  if (typeof window === "undefined") return { currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 };
+  try {
+    const s = localStorage.getItem("tg_streak");
+    if (!s) return { currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 };
+    return JSON.parse(s);
+  } catch { return { currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 }; }
+}
+function updateStreak(): StreakData {
+  const data = loadStreak();
+  const today = new Date().toISOString().slice(0, 10);
+  if (data.lastDate === today) return data; // already counted today
+
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const newStreak = data.lastDate === yesterday ? data.currentStreak + 1 : 1;
+  const updated: StreakData = {
+    currentStreak: newStreak,
+    longestStreak: Math.max(data.longestStreak, newStreak),
+    lastDate: today,
+    totalDays: data.totalDays + 1,
+  };
+  try { localStorage.setItem("tg_streak", JSON.stringify(updated)); } catch {}
+  return updated;
+}
+
+// ─── Onboarding ──────────────────────────────────────────────────
+function isOnboarded(): boolean {
+  if (typeof window === "undefined") return true;
+  return localStorage.getItem("tg_onboarded") === "1";
+}
+function markOnboarded() {
+  try { localStorage.setItem("tg_onboarded", "1"); } catch {}
+}
+
 // ─── Stage helpers ────────────────────────────────────────────
 function stageLabel(char: Character, n: number): string {
   if (!char?.growth_stages?.length) return "";
@@ -597,6 +638,9 @@ export default function App() {
   const [apiInput, setApiInput] = useState("");
   const [authUser, setAuthUser] = useState<{ email: string; name: string } | null>(null);
   const [showApiModal, setShowApiModal] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardStep, setOnboardStep] = useState(0);
+  const [streak, setStreak] = useState<StreakData>({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
 
   const [topic, setTopic] = useState<TopicData | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -721,6 +765,11 @@ export default function App() {
       });
       subscription = data.subscription;
     } catch { /* Supabase初期化失敗時はログインなしで動作 */ }
+
+    // Streak & Onboarding
+    try { setStreak(loadStreak()); } catch {}
+    if (!isOnboarded()) setShowOnboarding(true);
+
     return () => { subscription?.unsubscribe(); };
   }, []);
 
@@ -906,6 +955,9 @@ export default function App() {
         saveProfileEntry(entry);
         const newProfile = loadProfile();
         setProfile(newProfile);
+
+        // ストリーク更新
+        setStreak(updateStreak());
 
         // 知識グラフ更新（バックグラウンド）
         updateAnalytics(newProfile);
@@ -1556,6 +1608,52 @@ export default function App() {
                 setInputUrl(""); setInputText(""); setFileContent(""); setFileData(null); setFileInfo(null);
               }} style={{ flex: 1, background: "#f5f5f5", color: "#555", marginTop: 0 }}>別トピックへ</button>
             </div>
+
+            {/* Share Buttons */}
+            <div style={{ marginTop: "1rem", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#ccc", marginBottom: "0.5rem", fontWeight: 600 }}>結果をシェア</div>
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+                <button onClick={() => {
+                  const text = `${topic.title}をAIに教えて${total}点獲得！${grade ? ` Grade ${grade}` : ""}\n#teachAI #AIに教えて学ぶ`;
+                  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank");
+                }} style={{
+                  padding: "8px 16px", borderRadius: 10, border: "1.5px solid #1DA1F220",
+                  background: "#1DA1F208", color: "#1DA1F2", fontSize: 12, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit",
+                }}>𝕏 ポスト</button>
+                <button onClick={() => {
+                  const text = `${topic.title}をAIに教えて${total}点獲得！${grade ? ` Grade ${grade}` : ""}\n#teachAI`;
+                  window.open(`https://social-plugins.line.me/lineit/share?text=${encodeURIComponent(text)}`, "_blank");
+                }} style={{
+                  padding: "8px 16px", borderRadius: 10, border: "1.5px solid #06C75520",
+                  background: "#06C75508", color: "#06C755", fontSize: 12, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit",
+                }}>LINE</button>
+                <button onClick={() => {
+                  const text = `${topic.title}をAIに教えて${total}点獲得！ Grade ${grade || "-"} #teachAI`;
+                  navigator.clipboard?.writeText(text);
+                }} style={{
+                  padding: "8px 16px", borderRadius: 10, border: "1.5px solid #eee",
+                  background: "#fafafa", color: "#888", fontSize: 12, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit",
+                }}>コピー</button>
+              </div>
+            </div>
+
+            {/* Streak Display */}
+            {streak.currentStreak > 0 && (
+              <div className="fade-in" style={{
+                marginTop: "1rem", textAlign: "center", padding: "0.75rem",
+                borderRadius: 14, background: "linear-gradient(135deg, #FF6B6B08, #FF9A5608)",
+                border: "1px solid #FF6B6B15",
+              }}>
+                <span style={{ fontSize: 22 }}>🔥</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: "#FF6B6B", marginLeft: 6 }}>{streak.currentStreak}日連続学習中！</span>
+                {streak.currentStreak >= streak.longestStreak && streak.currentStreak > 1 && (
+                  <span style={{ fontSize: 11, color: "#F5A623", marginLeft: 8 }}>自己ベスト更新！</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1577,8 +1675,20 @@ export default function App() {
         backdropFilter: "blur(8px)", borderBottom: "1px solid #f0f0f0",
         marginBottom: 4,
       }}>
-        <div style={{ fontSize: 15, fontWeight: 800, color: "#222", letterSpacing: "-0.5px" }}>
-          teach<span style={{ color: cc }}>AI</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#222", letterSpacing: "-0.5px" }}>
+            teach<span style={{ color: cc }}>AI</span>
+          </div>
+          {streak.currentStreak > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 3,
+              padding: "2px 8px", borderRadius: 100,
+              background: "#FF6B6B10", border: "1px solid #FF6B6B20",
+              fontSize: 11, fontWeight: 700, color: "#FF6B6B",
+            }}>
+              🔥 {streak.currentStreak}日
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {authUser ? (
@@ -1828,6 +1938,71 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* Onboarding Modal */}
+      {showOnboarding && (() => {
+        const steps = [
+          {
+            emoji: "🧠", title: "teachAI へようこそ！",
+            desc: "「AIに教える」ことで、あなたの理解が深まる。\n学術論文に基づくピアチュータリング手法で、記憶定着率が2.5倍に。",
+          },
+          {
+            emoji: "📄", title: "Step 1: 教材を読み込む",
+            desc: "YouTube URL、Webサイト、PDF、テキスト — なんでもOK。\nAIが内容を分析して学習セッションを自動生成します。",
+          },
+          {
+            emoji: "🗣️", title: "Step 2: AIに教える",
+            desc: "AIキャラクターからの質問に、自分の言葉で答えましょう。\n音声でもテキストでもOK。教えるほど理解が深まります。",
+          },
+          {
+            emoji: "📊", title: "Step 3: スコアで成長を実感",
+            desc: "5つの軸で理解度を可視化。弱点がわかるから効率的に復習できます。\nAIキャラクターと一緒に成長しましょう！",
+          },
+        ];
+        const s = steps[onboardStep] || steps[0];
+        const isLast = onboardStep >= steps.length - 1;
+        return (
+          <div className="overlay" onClick={() => {}}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400, textAlign: "center" }}>
+              <div style={{ fontSize: 56, marginBottom: "0.75rem" }}>{s.emoji}</div>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: "#0A2342", marginBottom: "0.5rem" }}>{s.title}</h2>
+              <p style={{ fontSize: 14, color: "#777", lineHeight: 1.75, whiteSpace: "pre-line", marginBottom: "1.5rem" }}>{s.desc}</p>
+              {/* Dots */}
+              <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: "1.25rem" }}>
+                {steps.map((_, i) => (
+                  <div key={i} style={{
+                    width: i === onboardStep ? 20 : 8, height: 8, borderRadius: 4,
+                    background: i === onboardStep ? "#1A6B72" : "#e0e0e0",
+                    transition: "all 0.3s",
+                  }} />
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                {onboardStep > 0 && (
+                  <button className="btn-primary" onClick={() => setOnboardStep(onboardStep - 1)}
+                    style={{ flex: 1, marginTop: 0, background: "#f5f5f5", color: "#555" }}>戻る</button>
+                )}
+                <button className="btn-primary" onClick={() => {
+                  if (isLast) {
+                    markOnboarded();
+                    setShowOnboarding(false);
+                  } else {
+                    setOnboardStep(onboardStep + 1);
+                  }
+                }} style={{ flex: 1, marginTop: 0, background: "linear-gradient(135deg, #0A2342, #1A6B72)" }}>
+                  {isLast ? "始める！" : "次へ"}
+                </button>
+              </div>
+              {!isLast && (
+                <button onClick={() => { markOnboarded(); setShowOnboarding(false); }}
+                  style={{ background: "none", border: "none", fontSize: 12, color: "#bbb", cursor: "pointer", marginTop: "0.75rem", fontFamily: "inherit" }}>
+                  スキップ
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* API Modal */}
       {showApiModal && (() => {
