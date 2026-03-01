@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
 async function handleLogout(request: NextRequest) {
   const { origin } = new URL(request.url);
-  const redirectUrl = new URL("/", origin);
+  const redirectUrl = new URL("/landing", origin);
   const response = NextResponse.redirect(redirectUrl, { status: 302 });
 
   // response の cookie に signOut の結果（cookieクリア）を反映
