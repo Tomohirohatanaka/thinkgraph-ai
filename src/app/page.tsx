@@ -1023,6 +1023,7 @@ export default function App() {
   const [charCreationPreset, setCharCreationPreset] = useState<string>("mio");
   const [charCreationCustomName, setCharCreationCustomName] = useState("");
   const [charCreationCustomPersonality, setCharCreationCustomPersonality] = useState("");
+  const [charCreationEmoji, setCharCreationEmoji] = useState("");
   const [charEditName, setCharEditName] = useState("");
   const [charEditPersonality, setCharEditPersonality] = useState("");
   const [charEditRate, setCharEditRate] = useState(1.05);
@@ -1140,17 +1141,18 @@ export default function App() {
         setStreak(data.streak);
         try { localStorage.setItem("tg_streak", JSON.stringify(data.streak)); } catch {}
       }
-    } catch { /* 同期失敗はサイレント（ローカルデータで動作） */ }
+    } catch (e) { console.warn("[teachAI] Supabase sync failed, using local data:", e); }
   }
 
   async function syncCharToSupabase(charData: Character) {
     try {
-      await fetch("/api/user/sync", {
+      const res = await fetch("/api/user/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ character: charData }),
       });
-    } catch { /* サイレント */ }
+      if (!res.ok) console.warn("[teachAI] Character sync response:", res.status);
+    } catch (e) { console.warn("[teachAI] Character sync failed:", e); }
   }
 
   // ── ログアウト処理（デモ画面に完全復帰）────────────────────────
@@ -2302,6 +2304,10 @@ export default function App() {
                 setScreen("home"); setTopic(null);
                 setInputUrl(""); setInputText(""); setFileContent(""); setFileData(null); setFileInfo(null);
                 setActiveInputTab("text");
+                setRqsHistory([]); rqsRef.current = [];
+                setStateHistory([]); stateHistRef.current = [];
+                setCurrentState("ORIENT"); curStateRef.current = "ORIENT";
+                setKbSignals([]); kbRef.current = [];
               }} style={{ flex: 1, background: "#f5f5f5", color: "#555", marginTop: 0 }}>別のトピックを教える</button>
             </div>
 
@@ -2819,6 +2825,7 @@ export default function App() {
                   <button className="btn-primary" onClick={() => {
                     setCharCreationCustomName(selectedPreset.name);
                     setCharCreationCustomPersonality(selectedPreset.personality);
+                    setCharCreationEmoji(selectedPreset.emoji);
                     setCharCreationStep(1);
                   }} style={{ marginTop: 0, background: selectedPreset.color }}>
                     {selectedPreset.name}を選ぶ
@@ -2830,7 +2837,20 @@ export default function App() {
                     <Avatar char={{ ...selectedPreset, praise: "", struggle: "", confused: "", lore: "", interests: [], knowledge_areas: [], growth_stages: [], evolution_log: [] } as Character} size={72} />
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 900, color: "#0A2342", marginBottom: 4 }}>カスタマイズ</div>
-                  <p style={{ fontSize: 12, color: "#999", marginBottom: "1rem" }}>名前や性格を自由に変更できます（後からも変更可能）</p>
+                  <p style={{ fontSize: 12, color: "#999", marginBottom: "1rem" }}>名前・アイコン・性格を自由に変更できます（後からも変更可能）</p>
+                  <div style={{ textAlign: "left", marginBottom: "0.75rem" }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>アイコン</label>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {["👧", "👦", "🧒", "👩", "🐱", "🐶", "🦊", "🐰", "🐼", "🦉", "🌸", "⭐"].map(e => (
+                        <button key={e} onClick={() => setCharCreationEmoji(e)}
+                          style={{
+                            width: 40, height: 40, borderRadius: 10, border: `2px solid ${charCreationEmoji === e ? selectedPreset.color : "#eee"}`,
+                            background: charCreationEmoji === e ? `${selectedPreset.color}10` : "#fafafa",
+                            cursor: "pointer", fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>{e}</button>
+                      ))}
+                    </div>
+                  </div>
                   <div style={{ textAlign: "left", marginBottom: "0.75rem" }}>
                     <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>名前</label>
                     <input value={charCreationCustomName} onChange={e => setCharCreationCustomName(e.target.value)}
@@ -2848,7 +2868,7 @@ export default function App() {
                       const newChar: Character = {
                         id: selectedPreset.id,
                         name: charCreationCustomName.trim() || selectedPreset.name,
-                        emoji: selectedPreset.emoji,
+                        emoji: charCreationEmoji || selectedPreset.emoji,
                         color: selectedPreset.color,
                         personality: charCreationCustomPersonality.trim() || selectedPreset.personality,
                         speaking_style: selectedPreset.speaking_style,

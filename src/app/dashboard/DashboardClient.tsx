@@ -104,6 +104,9 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
   // Streak state (loaded from localStorage)
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
+  const [charEmoji, setCharEmoji] = useState("");
+  const [charColor, setCharColor] = useState("");
+  const [charId, setCharId] = useState("");
 
   useEffect(() => {
     try {
@@ -112,7 +115,10 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
       const c = localStorage.getItem("tg_char");
       if (c) {
         const parsed = JSON.parse(c);
-        setSavedChar(parsed.name || "");
+        setSavedChar(parsed.custom_name || parsed.name || "");
+        setCharEmoji(parsed.emoji || "");
+        setCharColor(parsed.color || "");
+        setCharId(parsed.id || "");
       }
       const s = localStorage.getItem("tg_streak");
       if (s) {
@@ -122,10 +128,15 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
   }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    // router.push + refresh ではSSRのcookieが残り続けるため、
-    // window.location で完全リロードしてcookieをクリアする
-    window.location.href = "/auth/login";
+    try {
+      localStorage.removeItem("tg_char");
+      localStorage.removeItem("tg_profile");
+      localStorage.removeItem("tg_graph");
+      localStorage.removeItem("tg_apikey");
+      localStorage.removeItem("tg_streak");
+      localStorage.removeItem("tg_app_version");
+    } catch {}
+    window.location.href = "/api/auth/logout";
   };
 
   const saveApiKey = () => {
@@ -210,13 +221,18 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 16px" }}>
         {/* Greeting */}
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: BRAND.primary }}>
-            こんにちは、{user.name?.split(" ")[0] || "ユーザー"}さん
-          </h1>
-          <p style={{ margin: "4px 0 0", color: "#6B7280", fontSize: 13 }}>
-            教えた成果を確認しましょう
-          </p>
+        <div style={{ marginBottom: 24, display: "flex", alignItems: "center", gap: 14 }}>
+          {charId && (
+            <CharAvatar charId={charId} color={charColor || "#FF6B9D"} size={48} />
+          )}
+          <div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: BRAND.primary }}>
+              {savedChar ? `${savedChar}と${user.name?.split(" ")[0] || "あなた"}の学習記録` : `こんにちは、${user.name?.split(" ")[0] || "ユーザー"}さん`}
+            </h1>
+            <p style={{ margin: "4px 0 0", color: "#6B7280", fontSize: 13 }}>
+              {savedChar ? `${savedChar}に教えた成果を確認しましょう` : "教えた成果を確認しましょう"}
+            </p>
+          </div>
         </div>
 
         {/* KPI cards */}
@@ -729,6 +745,34 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                   </div>
                 </div>
               )}
+              {/* Session Feedback Summary */}
+              {(() => {
+                const scores = [selectedSession.score_knowledge_fidelity, selectedSession.score_structural_integrity, selectedSession.score_hypothesis_generation, selectedSession.score_thinking_depth].filter((v): v is number => v != null);
+                if (scores.length === 0) return null;
+                const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+                const best = [
+                  { label: "概念理解度", val: selectedSession.score_knowledge_fidelity ?? 0 },
+                  { label: "構造整合度", val: selectedSession.score_structural_integrity ?? 0 },
+                  { label: "仮説生成力", val: selectedSession.score_hypothesis_generation ?? 0 },
+                  { label: "思考深度", val: selectedSession.score_thinking_depth ?? 0 },
+                ].filter(d => d.val > 0).sort((a, b) => b.val - a.val);
+                const cn = savedChar || "AI";
+                return (
+                  <div style={{ marginTop: 16, padding: "12px 14px", background: avg >= 70 ? "#F0FDF4" : avg >= 45 ? "#FFFBEB" : "#FEF2F2", borderRadius: 12, border: `1px solid ${avg >= 70 ? "#BBF7D0" : avg >= 45 ? "#FDE68A" : "#FECACA"}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: avg >= 70 ? "#166534" : avg >= 45 ? "#92400E" : "#991B1B", marginBottom: 6 }}>
+                      {cn}からのフィードバック
+                    </div>
+                    <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>
+                      {avg >= 70
+                        ? `${best[0]?.label || "理解度"}がとても高いセッションでした！${best.length > 1 && best[best.length - 1].val < 60 ? `${best[best.length - 1].label}をもう少し意識するとさらに良くなりそうです。` : "この調子で続けましょう！"}`
+                        : avg >= 45
+                        ? `着実に理解が進んでいます。${best[0]?.label || ""}が強みです。${best.length > 1 ? `${best[best.length - 1].label}を重点的に教えるとレベルアップできそうです。` : "もう一度教えてみましょう！"}`
+                        : `まだ伸びしろがたくさんあります！もう一度ゆっくり教えてみてください。${best[0] ? `${best[0].label}は良いスタートです。` : ""}`
+                      }
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
                 <button onClick={() => { router.push(`/?topic=${encodeURIComponent(selectedSession.topic)}`); }}
                   style={{ flex: 1, padding: "10px", background: BRAND.accent, color: "white", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 600, fontFamily: "inherit" }}>

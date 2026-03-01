@@ -12,7 +12,7 @@ export async function GET() {
     const { data: { user }, error } = await supabase.auth.getUser();
 
     if (error || !user) {
-      return NextResponse.json({ character: null, preferences: null });
+      return NextResponse.json({ character: null, preferences: null }, { status: 401 });
     }
 
     const meta = user.user_metadata || {};

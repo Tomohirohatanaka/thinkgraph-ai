@@ -54,7 +54,7 @@ function LoginFormInner() {
         if (error.message === "Invalid login credentials") {
           setError("メールアドレスまたはパスワードが正しくありません");
         } else if (error.message === "Email not confirmed") {
-          setError("メールアドレスが確認されていません。受信箱の確認メールをご確認ください。");
+          setError("メールアドレスが確認されていません。受信箱（迷惑メールフォルダも含む）の確認メールをご確認ください。届いていない場合は再度アカウント作成をお試しください。");
         } else {
           setError(error.message);
         }

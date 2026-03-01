@@ -494,6 +494,14 @@ input[type="range"]::-moz-range-thumb {
 /* ── Nav responsive ── */
 @media (max-width: 480px) {
   nav { padding: 10px 12px !important; }
+  /* Hide center nav links on small phones to prevent overflow */
+  nav > div:nth-child(2) { display: none !important; }
+}
+
+/* ── Modal responsive: ensure modals fit on small screens ── */
+@media (max-width: 480px) {
+  .modal { max-width: 92vw !important; width: 92vw !important; }
+  .overlay { padding: 12px !important; }
 }
 
 /* ── Dashboard responsive ── */
