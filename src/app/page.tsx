@@ -616,7 +616,7 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
   );
   if (skillError) return (
     <div style={{ textAlign: "center", padding: "2rem 1rem" }}>
-      <div style={{ fontSize: 13, color: "#FF6B6B", background: "#fff5f5", padding: "0.75rem", borderRadius: 10, marginBottom: "1rem" }}>{skillError}</div>
+      <div style={{ fontSize: 13, color: "#FF6B9D", background: "#fff5f5", padding: "0.75rem", borderRadius: 10, marginBottom: "1rem" }}>{skillError}</div>
       <button className="btn-primary" onClick={onLoad} style={{ maxWidth: 200, margin: "0 auto", display: "flex" }}>再試行</button>
     </div>
   );
@@ -625,13 +625,13 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
   const charName = skillMap.char_name ?? "キャラクター";
   const charEmoji = skillMap.char_emoji ?? "🤖";
   const lc = (l: string) =>
-    l === "熟達" ? "#FF6B6B" : l === "一人前" ? "#4ECDC4" : l === "成長中" ? "#45B7D1" : "#96CEB4";
+    l === "熟達" ? "#FF6B9D" : l === "一人前" ? "#4ECDC4" : l === "成長中" ? "#45B7D1" : "#96CEB4";
   const levelBg = (l: string) =>
     l === "熟達" ? "#fff5f5" : l === "一人前" ? "#f0fffe" : l === "成長中" ? "#f0f8ff" : "#f5fff5";
 
   // Compute SOLO Taxonomy v3 averages from profile + categories
   const soloAxes = [
-    { label: "網羅性", color: "#FF6B6B", icon: "📋" },
+    { label: "網羅性", color: "#FF6B9D", icon: "📋" },
     { label: "深さ", color: "#45B7D1", icon: "🔬" },
     { label: "明晰さ", color: "#4ECDC4", icon: "💎" },
     { label: "論理構造", color: "#8E44AD", icon: "🏗️" },
@@ -740,8 +740,8 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
                   <div style={{
                     marginLeft: "auto",
                     fontSize: 11, fontWeight: 700, borderRadius: 20, padding: "2px 8px",
-                    color: cat.avg_score >= 80 ? "#4ECDC4" : cat.avg_score >= 60 ? "#45B7D1" : cat.avg_score >= 40 ? "#F5A623" : "#FF6B6B",
-                    background: cat.avg_score >= 80 ? "#4ECDC410" : cat.avg_score >= 60 ? "#45B7D110" : cat.avg_score >= 40 ? "#F5A62310" : "#FF6B6B10",
+                    color: cat.avg_score >= 80 ? "#4ECDC4" : cat.avg_score >= 60 ? "#45B7D1" : cat.avg_score >= 40 ? "#F5A623" : "#FF6B9D",
+                    background: cat.avg_score >= 80 ? "#4ECDC410" : cat.avg_score >= 60 ? "#45B7D110" : cat.avg_score >= 40 ? "#F5A62310" : "#FF6B9D10",
                   }}>
                     {cat.avg_score >= 80 ? "熟達" : cat.avg_score >= 60 ? "習得中" : cat.avg_score >= 40 ? "成長中" : "入門"}
                   </div>
@@ -764,11 +764,11 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
           {((skillMap.weak_areas || skillMap.next_steps) || []).slice(0, 3).map((s, i) => <div key={i} style={{ fontSize: 13, color: "#333", padding: "0.2rem 0" }}>△ {s}</div>)}
         </div>
       </div>
-      <div className="card" style={{ marginTop: "1rem", borderColor: "#FF6B6B30", background: "#fff8f8" }}>
-        <div style={{ fontSize: 12, color: "#FF6B6B", fontWeight: 700, marginBottom: "0.6rem" }}>🎯 {charName}に教えてほしいこと</div>
+      <div className="card" style={{ marginTop: "1rem", borderColor: "#FF6B9D30", background: "#fff8f8" }}>
+        <div style={{ fontSize: 12, color: "#FF6B9D", fontWeight: 700, marginBottom: "0.6rem" }}>🎯 {charName}に教えてほしいこと</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
           {(skillMap.next_steps || []).map((s, i) => (
-            <span key={i} style={{ fontSize: 12, background: "#fff", border: "1px solid #FF6B6B40", borderRadius: 20, padding: "0.25rem 0.75rem", color: "#555" }}>→ {s}</span>
+            <span key={i} style={{ fontSize: 12, background: "#fff", border: "1px solid #FF6B9D40", borderRadius: 20, padding: "0.25rem 0.75rem", color: "#555" }}>→ {s}</span>
           ))}
         </div>
       </div>
@@ -1005,7 +1005,7 @@ export default function App() {
   curStateRef.current = currentState;
   kbRef.current = kbSignals;
 
-  const cc = char?.color || "#FF6B6B";
+  const cc = char?.color || "#FF6B9D";
   const userTurns = turns.filter(t => t.role === "user").length;
 
   // ── Init（防御的バージョン）──────────────────────────────────
@@ -1691,7 +1691,7 @@ export default function App() {
                 <span style={{ opacity: 0.5 }}>·</span>
                 {stageLabel(char, profile.length)}
                 {leadingPenalty > 0 && (
-                  <span style={{ color: "#FF6B6B", fontSize: 9, marginLeft: 4 }}>誘導 −{leadingPenalty}pt</span>
+                  <span style={{ color: "#FF6B9D", fontSize: 9, marginLeft: 4 }}>誘導 −{leadingPenalty}pt</span>
                 )}
               </div>
             )}
@@ -1884,7 +1884,7 @@ export default function App() {
       : (total >= 85 ? "完璧に教えられた！" : total >= 70 ? "上手に教えられた！" : total >= 50 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう");
     const hasPenalty = !isV3 && (result.leading_penalty > 0 || result.gave_up_penalty > 0);
     const gradeColor = (g?: string) =>
-      g === "S" ? "#FFD700" : g === "A" ? cc : g === "B" ? "#4ECDC4" : g === "C" ? "#F5A623" : "#FF6B6B";
+      g === "S" ? "#FFD700" : g === "A" ? cc : g === "B" ? "#4ECDC4" : g === "C" ? "#F5A623" : "#FF6B9D";
 
     return (
       <div className="app" style={{ overflowY: "auto" }}>
@@ -1924,7 +1924,7 @@ export default function App() {
                       }}>Grade {grade}</div>
                     )}
                     {result.score_v3.conjunctive_pass === false && (
-                      <div style={{ fontSize: 11, color: "#FF6B6B", marginTop: "0.3rem" }}>
+                      <div style={{ fontSize: 11, color: "#FF6B9D", marginTop: "0.3rem" }}>
                         ⚠️ 一部の次元が基準未満のため、グレードが制限されています
                       </div>
                     )}
@@ -1932,7 +1932,7 @@ export default function App() {
                   {/* 5D Bars */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                     {[
-                      { key: "completeness", label: "網羅性", color: "#FF6B6B" },
+                      { key: "completeness", label: "網羅性", color: "#FF6B9D" },
                       { key: "depth", label: "深さ", color: "#4ECDC4" },
                       { key: "clarity", label: "明晰さ", color: "#45B7D1" },
                       { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
@@ -1961,7 +1961,7 @@ export default function App() {
                       <div style={{ fontSize: 10, color: "#bbb" }}>教え方スタイル</div>
                     </div>
                     <div style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.rqs_avg >= 0.6 ? "#4ECDC4" : result.score_v3.rqs_avg >= 0.3 ? "#F5A623" : "#FF6B6B" }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.rqs_avg >= 0.6 ? "#4ECDC4" : result.score_v3.rqs_avg >= 0.3 ? "#F5A623" : "#FF6B9D" }}>
                         {(result.score_v3.rqs_avg * 100).toFixed(0)}%
                       </div>
                       <div style={{ fontSize: 10, color: "#bbb" }}>応答品質 (RQS)</div>
@@ -1988,7 +1988,7 @@ export default function App() {
                       )}
                       <div style={{ fontSize: 11, color: "#bbb", marginTop: "0.2rem" }}>総合スコア</div>
                     </div>
-                    <Ring value={result.score.coverage} color="#FF6B6B" label="網羅性" />
+                    <Ring value={result.score.coverage} color="#FF6B9D" label="網羅性" />
                     <Ring value={result.score.depth} color="#4ECDC4" label="深さ" />
                     <Ring value={result.score.clarity} color="#45B7D1" label="明瞭さ" />
                   </div>
@@ -2019,11 +2019,11 @@ export default function App() {
 
             {/* Penalty (v2 only) */}
             {hasPenalty && (
-              <div className="card" style={{ marginBottom: "1rem", background: "#fff8f8", borderColor: "#FF6B6B30" }}>
-                <div style={{ fontSize: 11, color: "#FF6B6B", fontWeight: 700, marginBottom: "0.5rem" }}>⚠️ スコア補正</div>
+              <div className="card" style={{ marginBottom: "1rem", background: "#fff8f8", borderColor: "#FF6B9D30" }}>
+                <div style={{ fontSize: 11, color: "#FF6B9D", fontWeight: 700, marginBottom: "0.5rem" }}>⚠️ スコア補正</div>
                 <div style={{ fontSize: 12, color: "#aaa", marginBottom: "0.3rem" }}>補正前スコア: {result.raw_score.total}点</div>
-                {result.leading_penalty > 0 && <div style={{ fontSize: 12, color: "#FF6B6B" }}>誘導質問ペナルティ: −{result.leading_penalty}pt</div>}
-                {result.gave_up_penalty > 0 && <div style={{ fontSize: 12, color: "#FF6B6B", marginTop: "0.2rem" }}>未解答ペナルティ: −{result.gave_up_penalty}pt</div>}
+                {result.leading_penalty > 0 && <div style={{ fontSize: 12, color: "#FF6B9D" }}>誘導質問ペナルティ: −{result.leading_penalty}pt</div>}
+                {result.gave_up_penalty > 0 && <div style={{ fontSize: 12, color: "#FF6B9D", marginTop: "0.2rem" }}>未解答ペナルティ: −{result.gave_up_penalty}pt</div>}
               </div>
             )}
 
@@ -2044,7 +2044,7 @@ export default function App() {
                 )) : <div style={{ fontSize: 12, color: "#ccc" }}>—</div>}
               </div>
               <div className="card">
-                <div style={{ fontSize: 11, color: "#FF6B6B", fontWeight: 700, marginBottom: "0.4rem" }}>△ 要復習</div>
+                <div style={{ fontSize: 11, color: "#FF6B9D", fontWeight: 700, marginBottom: "0.4rem" }}>△ 要復習</div>
                 {result.gaps.length ? result.gaps.map(c => (
                   <div key={c} style={{ fontSize: 12, color: "#333", padding: "0.15rem 0", borderBottom: "1px solid #f8f8f8" }}>· {c}</div>
                 )) : <div style={{ fontSize: 12, color: "#ccc" }}>—</div>}
@@ -2179,11 +2179,11 @@ export default function App() {
             {streak.currentStreak > 0 && (
               <div className="fade-in" style={{
                 marginTop: "1rem", textAlign: "center", padding: "0.75rem",
-                borderRadius: 14, background: "linear-gradient(135deg, #FF6B6B08, #FF9A5608)",
-                border: "1px solid #FF6B6B15",
+                borderRadius: 14, background: "linear-gradient(135deg, #FF6B9D08, #FF9A5608)",
+                border: "1px solid #FF6B9D15",
               }}>
                 <span style={{ fontSize: 22 }}>🔥</span>
-                <span style={{ fontSize: 15, fontWeight: 800, color: "#FF6B6B", marginLeft: 6 }}>{streak.currentStreak}日連続ティーチング中！</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: "#FF6B9D", marginLeft: 6 }}>{streak.currentStreak}日連続ティーチング中！</span>
                 {streak.currentStreak >= streak.longestStreak && streak.currentStreak > 1 && (
                   <span style={{ fontSize: 11, color: "#F5A623", marginLeft: 8 }}>自己ベスト更新！</span>
                 )}
@@ -2201,11 +2201,11 @@ export default function App() {
   return (
     <div className="app">
 
-      {/* ── 認証ヘッダー（LP品質デザイン） ── */}
+      {/* ── 認証ヘッダー（LP統一デザイン） ── */}
       <nav style={{
         position: "sticky", top: 0, zIndex: 50,
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 20px", background: "rgba(255,255,255,0.97)",
+        padding: "14px 24px", background: "rgba(255,255,255,0.95)",
         backdropFilter: "blur(16px)", borderBottom: "1px solid rgba(0,0,0,0.04)",
         marginBottom: 0,
       }}>
@@ -2217,8 +2217,8 @@ export default function App() {
             <div style={{
               display: "flex", alignItems: "center", gap: 3,
               padding: "3px 10px", borderRadius: 100,
-              background: "linear-gradient(135deg, #FF6B6B08, #FF6B6B12)", border: "1px solid #FF6B6B18",
-              fontSize: 11, fontWeight: 700, color: "#FF6B6B",
+              background: "linear-gradient(135deg, #FF6B9D08, #FF6B9D12)", border: "1px solid #FF6B9D18",
+              fontSize: 11, fontWeight: 700, color: "#FF6B9D",
             }}>
               {streak.currentStreak}日連続
             </div>
@@ -2369,7 +2369,7 @@ export default function App() {
                             <span style={{ fontSize: 10, color: inputText.length > AUTO_SPLIT_THRESHOLD ? "#F5A623" : "#ccc" }}>
                               {inputText.length > AUTO_SPLIT_THRESHOLD && "⚠️ 長文は複数セッションに分割されます "}
                             </span>
-                            <span style={{ fontSize: 10, color: inputText.length > TEXT_INPUT_LIMIT * 0.9 ? "#FF6B6B" : "#ccc" }}>
+                            <span style={{ fontSize: 10, color: inputText.length > TEXT_INPUT_LIMIT * 0.9 ? "#FF6B9D" : "#ccc" }}>
                               {inputText.length.toLocaleString()} / {TEXT_INPUT_LIMIT.toLocaleString()}文字（約{(new Blob([inputText]).size / 1024).toFixed(0)}KB）
                             </span>
                           </div>
@@ -2416,7 +2416,7 @@ export default function App() {
                   );
                 })()}
 
-                {error && <div style={{ fontSize: 13, color: "#FF6B6B", padding: "0.4rem 0.6rem", background: "#fff5f5", borderRadius: 8, marginTop: "0.5rem" }}>{error}</div>}
+                {error && <div style={{ fontSize: 13, color: "#FF6B9D", padding: "0.4rem 0.6rem", background: "#fff5f5", borderRadius: 8, marginTop: "0.5rem" }}>{error}</div>}
 
                 <button className="btn-primary" onClick={handleStart} disabled={loading}
                   style={{ marginTop: "0.75rem", background: char ? cc : undefined }}>
@@ -2449,7 +2449,7 @@ export default function App() {
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</div>
                         <div style={{ fontSize: 11, color: "#bbb" }}>{e.date}</div>
                       </div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: e.score >= 70 ? "#4ECDC4" : e.score >= 50 ? "#F5A623" : "#FF6B6B" }}>{e.score}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: e.score >= 70 ? "#4ECDC4" : e.score >= 50 ? "#F5A623" : "#FF6B9D" }}>{e.score}</div>
                       <span style={{ fontSize: 12, color: "#ddd" }}>›</span>
                     </button>
                   ))}
@@ -2467,7 +2467,7 @@ export default function App() {
                       </div>
                       <div style={{
                         fontSize: 28, fontWeight: 900,
-                        color: historyPopup.score >= 70 ? "#4ECDC4" : historyPopup.score >= 50 ? "#F5A623" : "#FF6B6B",
+                        color: historyPopup.score >= 70 ? "#4ECDC4" : historyPopup.score >= 50 ? "#F5A623" : "#FF6B9D",
                       }}>{historyPopup.score}</div>
                     </div>
 
@@ -2480,7 +2480,7 @@ export default function App() {
                         )) : <div style={{ fontSize: 12, color: "#ccc" }}>—</div>}
                       </div>
                       <div style={{ background: "#fff5f5", borderRadius: 12, padding: "0.75rem" }}>
-                        <div style={{ fontSize: 11, color: "#FF6B6B", fontWeight: 700, marginBottom: "0.4rem" }}>△ もう一度教えたい</div>
+                        <div style={{ fontSize: 11, color: "#FF6B9D", fontWeight: 700, marginBottom: "0.4rem" }}>△ もう一度教えたい</div>
                         {historyPopup.gaps.length ? historyPopup.gaps.map(c => (
                           <div key={c} style={{ fontSize: 12, color: "#333", padding: "0.1rem 0" }}>· {c}</div>
                         )) : <div style={{ fontSize: 12, color: "#ccc" }}>—</div>}

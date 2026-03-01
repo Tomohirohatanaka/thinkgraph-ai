@@ -819,6 +819,18 @@ function Footer() {
    MAIN EXPORT
    ══════════════════════════════════════════════════════════════ */
 export default function LandingClient() {
+  const [authUser, setAuthUser] = useState<string | null>(null);
+
+  useEffect(() => {
+    // 認証状態を確認してナビを動的に切り替え
+    import("@/lib/supabase/client").then(({ createClient }) => {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) setAuthUser(user.user_metadata?.full_name || user.email || "");
+      }).catch(() => {});
+    }).catch(() => {});
+  }, []);
+
   return (
     <div style={{ fontFamily: "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", overflowX: "hidden", WebkitFontSmoothing: "antialiased" }}>
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -830,7 +842,7 @@ export default function LandingClient() {
         @media (max-width: 768px) { .hide-mobile { display: none; } }
       `}</style>
 
-      {/* ── Fixed Nav ── */}
+      {/* ── Fixed Nav (認証対応) ── */}
       <nav style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
         padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -842,12 +854,25 @@ export default function LandingClient() {
         </a>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <a href="#pricing" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>料金</a>
-          <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ログイン</a>
-          <a href="/auth/signup" style={{
-            padding: "10px 22px", fontSize: 13, fontWeight: 700,
-            color: "#fff", textDecoration: "none", borderRadius: 10,
-            background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
-          }}>無料で始める</a>
+          {authUser ? (
+            <>
+              <a href="/dashboard" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ダッシュボード</a>
+              <a href="/" style={{
+                padding: "10px 22px", fontSize: 13, fontWeight: 700,
+                color: "#fff", textDecoration: "none", borderRadius: 10,
+                background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
+              }}>AIに教える</a>
+            </>
+          ) : (
+            <>
+              <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ログイン</a>
+              <a href="/auth/signup" style={{
+                padding: "10px 22px", fontSize: 13, fontWeight: 700,
+                color: "#fff", textDecoration: "none", borderRadius: 10,
+                background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
+              }}>無料で始める</a>
+            </>
+          )}
         </div>
       </nav>
 
