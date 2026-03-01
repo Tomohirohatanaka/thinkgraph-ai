@@ -141,7 +141,7 @@ function Hero() {
         </p>
 
         <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: "3rem" }}>
-          <a href="/" style={{
+          <a href="/auth/signup" style={{
             display: "inline-flex", alignItems: "center", gap: 10,
             padding: "18px 40px", borderRadius: 14,
             background: B.gradientPrimary, color: "#fff",
@@ -592,7 +592,7 @@ function Pricing() {
                   </div>
                 ))}
               </div>
-              <a href="/" style={{
+              <a href="/auth/signup" style={{
                 display: "block", textAlign: "center",
                 padding: "14px 24px", borderRadius: 12,
                 fontSize: 15, fontWeight: 700, textDecoration: "none",
@@ -754,7 +754,7 @@ function CTASection() {
           APIキーなしでも無料で体験可能。<br />
           あなたの「教える力」を、スコアで見てみませんか？
         </p>
-        <a href="/" style={{
+        <a href="/auth/signup" style={{
           display: "inline-flex", alignItems: "center", gap: 10,
           padding: "18px 48px", borderRadius: 14,
           background: "#fff", color: B.navy,
@@ -766,7 +766,7 @@ function CTASection() {
           <span style={{ fontSize: 20 }}>→</span>
         </a>
         <div style={{ marginTop: "1.5rem", fontSize: 13, color: "rgba(255,255,255,0.5)" }}>
-          登録不要 · 30秒で開始 · クレジットカード不要
+          30秒で開始 · クレジットカード不要
         </div>
       </div>
     </section>
@@ -843,7 +843,7 @@ export default function LandingClient() {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <a href="#pricing" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>料金</a>
           <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ログイン</a>
-          <a href="/" style={{
+          <a href="/auth/signup" style={{
             padding: "10px 22px", fontSize: 13, fontWeight: 700,
             color: "#fff", textDecoration: "none", borderRadius: 10,
             background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",

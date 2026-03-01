@@ -98,13 +98,10 @@ export default function SignupForm() {
         boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
       }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{
-            width: 56, height: 56, background: "#0A2342", borderRadius: 16,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 14px", fontSize: 28,
-          }}>🧠</div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0A2342" }}>アカウント作成</h1>
-          <p style={{ margin: "6px 0 0", color: "#6B7280", fontSize: 14 }}>ThinkGraph AIに参加しよう</p>
+          <h1 style={{ margin: "0 0 6px", fontSize: 28, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
+            teach<span style={{ color: "#FF6B9D" }}>AI</span>
+          </h1>
+          <p style={{ margin: 0, color: "#6B7280", fontSize: 14 }}>無料アカウントを作成</p>
         </div>
 
         {error && (

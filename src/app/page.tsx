@@ -2201,59 +2201,69 @@ export default function App() {
   return (
     <div className="app">
 
-      {/* ── 認証ヘッダー ── */}
-      <div style={{
+      {/* ── 認証ヘッダー（LP品質デザイン） ── */}
+      <nav style={{
         position: "sticky", top: 0, zIndex: 50,
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "8px 12px", background: "rgba(255,255,255,0.95)",
-        backdropFilter: "blur(8px)", borderBottom: "1px solid #f0f0f0",
-        marginBottom: 4, gap: 6, flexWrap: "wrap",
+        padding: "12px 20px", background: "rgba(255,255,255,0.97)",
+        backdropFilter: "blur(16px)", borderBottom: "1px solid rgba(0,0,0,0.04)",
+        marginBottom: 0,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#222", letterSpacing: "-0.5px" }}>
-            <span style={{ color: "#FF6B9D", fontWeight: 900 }}>teach</span>AI
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <a href="/landing" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
+            teach<span style={{ color: "#FF6B9D" }}>AI</span>
+          </a>
           {streak.currentStreak > 0 && (
             <div style={{
               display: "flex", alignItems: "center", gap: 3,
-              padding: "2px 8px", borderRadius: 100,
-              background: "#FF6B6B10", border: "1px solid #FF6B6B20",
+              padding: "3px 10px", borderRadius: 100,
+              background: "linear-gradient(135deg, #FF6B6B08, #FF6B6B12)", border: "1px solid #FF6B6B18",
               fontSize: 11, fontWeight: 700, color: "#FF6B6B",
             }}>
-              🔥 {streak.currentStreak}日
+              {streak.currentStreak}日連続
             </div>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {authUser ? (
             <>
-              <span style={{ fontSize: 12, color: "#888", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 12, color: "#6B7280", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
                 {authUser.name}
               </span>
-              <a href="/dashboard" style={{ padding: "5px 12px", background: "#0A2342", color: "white", borderRadius: 8, textDecoration: "none", fontSize: 12, fontWeight: 700 }}>
-                📊 ダッシュボード
+              <a href="/dashboard" style={{
+                padding: "8px 16px", background: "linear-gradient(135deg, #0A2342, #1A6B72)", color: "white",
+                borderRadius: 10, textDecoration: "none", fontSize: 13, fontWeight: 700,
+                boxShadow: "0 2px 8px rgba(10,35,66,0.15)", transition: "all 0.2s",
+              }}>
+                ダッシュボード
               </a>
               <button onClick={() => {
-                  // サーバーサイドでCookieを完全クリア → ログインページへリダイレクト
-                  // これによりアカウント切替も正常に動作する
                   window.location.href = "/api/auth/logout";
                 }}
-                style={{ padding: "5px 12px", background: "transparent", border: "1px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#666" }}>
+                style={{
+                  padding: "8px 16px", background: "transparent", border: "1.5px solid #E5E7EB",
+                  borderRadius: 10, cursor: "pointer", fontSize: 13, color: "#6B7280", fontWeight: 600,
+                  fontFamily: "inherit", transition: "all 0.2s",
+                }}>
                 ログアウト
               </button>
             </>
           ) : (
             <>
-              <a href="/auth/login" style={{ padding: "5px 14px", background: "transparent", border: "1px solid #ddd", borderRadius: 8, textDecoration: "none", fontSize: 12, color: "#555", fontWeight: 600 }}>
+              <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: "#6B7280", textDecoration: "none" }}>
                 ログイン
               </a>
-              <a href="/auth/signup" style={{ padding: "5px 14px", background: "#0A2342", color: "white", borderRadius: 8, textDecoration: "none", fontSize: 12, fontWeight: 700 }}>
-                無料登録
+              <a href="/auth/signup" style={{
+                padding: "10px 22px", fontSize: 13, fontWeight: 700,
+                color: "#fff", textDecoration: "none", borderRadius: 10,
+                background: "linear-gradient(135deg, #0A2342, #1A6B72)", boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
+              }}>
+                無料で始める
               </a>
             </>
           )}
         </div>
-      </div>
+      </nav>
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div className="container home-wrap">
 
