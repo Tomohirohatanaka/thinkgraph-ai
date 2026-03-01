@@ -1,8 +1,28 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { type NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-export async function POST() {
-  const supabase = await createClient();
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+export async function POST(request: NextRequest) {
+  const { origin } = new URL(request.url);
+  const redirectUrl = new URL("/auth/login", origin);
+  const response = NextResponse.redirect(redirectUrl, { status: 302 });
+
+  // response の cookie に signOut の結果（cookieクリア）を反映
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          response.cookies.set(name, value, options);
+        });
+      },
+    },
+  });
+
   await supabase.auth.signOut();
-  return NextResponse.redirect(new URL("/auth/login", process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"));
+  return response;
 }
