@@ -33,11 +33,59 @@ function formatDuration(sec: number) {
 
 // Character avatars for dashboard selection
 const CHARACTER_PRESETS = [
-  { emoji: "👧", name: "ミオ", color: "#FF6B9D", personality: "元気で好奇心旺盛" },
-  { emoji: "👦", name: "ソラ", color: "#45B7D1", personality: "冷静で論理的" },
-  { emoji: "🧑", name: "ハル", color: "#4ECDC4", personality: "優しくて丁寧" },
-  { emoji: "👩", name: "リン", color: "#8E44AD", personality: "クールで知的" },
+  { id: "mio",  emoji: "👧", name: "ミオ", color: "#FF6B9D", personality: "元気で好奇心旺盛", accent: "#FF9EC6" },
+  { id: "sora", emoji: "👦", name: "ソラ", color: "#45B7D1", personality: "冷静で論理的",     accent: "#6DD3E8" },
+  { id: "haru", emoji: "🧑", name: "ハル", color: "#4ECDC4", personality: "優しくて丁寧",     accent: "#7EEAE0" },
+  { id: "rin",  emoji: "👩", name: "リン", color: "#8E44AD", personality: "クールで知的",     accent: "#A855F7" },
 ];
+
+// SVGキャラクターイラスト
+const CHAR_FACE: Record<string, { face: string; hair: string; accent: string }> = {
+  mio:  { face: "#FFE0C2", hair: "#FF6B9D", accent: "#FF9EC6" },
+  sora: { face: "#FFE0C2", hair: "#3A8BD2", accent: "#45B7D1" },
+  haru: { face: "#FFE0C2", hair: "#2EAD9A", accent: "#4ECDC4" },
+  rin:  { face: "#FFE0C2", hair: "#7B3FA0", accent: "#A855F7" },
+};
+
+function CharAvatar({ charId, color, size = 56 }: { charId: string; color: string; size?: number }) {
+  const illust = CHAR_FACE[charId] || CHAR_FACE.mio;
+  const r = size / 2;
+  const uid = `dash_${charId}_${size}`;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ filter: `drop-shadow(0 2px ${size * 0.08}px ${color}30)` }}>
+      <defs>
+        <radialGradient id={`${uid}_bg`} cx="50%" cy="40%" r="55%">
+          <stop offset="0%" stopColor={`${color}35`} />
+          <stop offset="100%" stopColor={`${color}12`} />
+        </radialGradient>
+        <radialGradient id={`${uid}_face`} cx="45%" cy="35%" r="50%">
+          <stop offset="0%" stopColor="#FFF0E0" />
+          <stop offset="100%" stopColor={illust.face} />
+        </radialGradient>
+        <linearGradient id={`${uid}_hair`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={illust.hair} />
+          <stop offset="100%" stopColor={illust.accent} />
+        </linearGradient>
+        <linearGradient id={`${uid}_ring`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={color} />
+          <stop offset="50%" stopColor={illust.accent} />
+          <stop offset="100%" stopColor={color} />
+        </linearGradient>
+      </defs>
+      <circle cx={r} cy={r} r={r - 1} fill="none" stroke={`url(#${uid}_ring)`} strokeWidth={size * 0.04} opacity="0.7" />
+      <circle cx={r} cy={r} r={r - size * 0.06} fill={`url(#${uid}_bg)`} />
+      <circle cx={r} cy={r * 1.05} r={r * 0.42} fill={`url(#${uid}_face)`} />
+      <ellipse cx={r} cy={r * 0.72} rx={r * 0.48} ry={r * 0.38} fill={`url(#${uid}_hair)`} />
+      <circle cx={r - r * 0.15} cy={r * 1.0} r={r * 0.06} fill="#333" />
+      <circle cx={r + r * 0.15} cy={r * 1.0} r={r * 0.06} fill="#333" />
+      <circle cx={r - r * 0.13} cy={r * 0.97} r={r * 0.025} fill="#fff" />
+      <circle cx={r + r * 0.17} cy={r * 0.97} r={r * 0.025} fill="#fff" />
+      <path d={`M ${r - r * 0.1} ${r * 1.18} Q ${r} ${r * 1.26} ${r + r * 0.1} ${r * 1.18}`} fill="none" stroke="#E8846B" strokeWidth={r * 0.035} strokeLinecap="round" />
+      <circle cx={r - r * 0.32} cy={r * 1.12} r={r * 0.08} fill={`${color}25`} />
+      <circle cx={r + r * 0.32} cy={r * 1.12} r={r * 0.08} fill={`${color}25`} />
+    </svg>
+  );
+}
 
 export default function DashboardClient({ user, sessions, stats, concepts }: {
   user: User; sessions: Session[]; stats: Stats | null; concepts: Concept[];
@@ -90,7 +138,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
   const selectCharacter = (preset: typeof CHARACTER_PRESETS[0]) => {
     const char = {
-      id: "my_char", name: preset.name, emoji: preset.emoji, color: preset.color,
+      id: preset.id, name: preset.name, emoji: preset.emoji, color: preset.color,
       personality: preset.personality + "。教えてもらうのが大好き。",
       speaking_style: "タメ口で親しみやすい。語尾に「！」「〜」が多い。",
       praise: "「えっ、すごい！！めっちゃわかった！！もっと教えて〜！」",
@@ -473,15 +521,18 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                 {CHARACTER_PRESETS.map(c => (
                   <button key={c.name} onClick={() => selectCharacter(c)}
                     style={{
-                      padding: "14px", borderRadius: 14, border: `2px solid ${savedChar === c.name ? c.color : "#eee"}`,
-                      background: savedChar === c.name ? `${c.color}10` : "#fafafa",
-                      cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.2s",
+                      padding: "16px 14px", borderRadius: 16, border: `2px solid ${savedChar === c.name ? c.color : "#eee"}`,
+                      background: savedChar === c.name ? `linear-gradient(135deg, ${c.color}12, ${c.accent}08)` : "#fafafa",
+                      cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.3s",
+                      boxShadow: savedChar === c.name ? `0 4px 20px ${c.color}20` : "none",
                     }}>
-                    <div style={{ fontSize: 36, marginBottom: 6 }}>{c.emoji}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#222" }}>{c.name}</div>
-                    <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{c.personality}</div>
+                    <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+                      <CharAvatar charId={c.id} color={c.color} size={52} />
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: savedChar === c.name ? c.color : "#222", letterSpacing: "-0.3px" }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 3, lineHeight: 1.4 }}>{c.personality}</div>
                     {savedChar === c.name && (
-                      <div style={{ fontSize: 10, color: c.color, fontWeight: 700, marginTop: 4 }}>選択中</div>
+                      <div style={{ fontSize: 10, color: "#fff", fontWeight: 700, marginTop: 6, background: c.color, padding: "3px 12px", borderRadius: 100, display: "inline-block" }}>選択中</div>
                     )}
                   </button>
                 ))}

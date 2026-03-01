@@ -14,6 +14,14 @@ const nextConfig: NextConfig = {
         { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
       ],
     },
+    {
+      // HTMLページのキャッシュを無効化（古いデプロイのキャッシュ防止）
+      source: "/:path((?!_next/static|_next/image|favicon\\.ico).*)",
+      headers: [
+        { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+        { key: "Pragma", value: "no-cache" },
+      ],
+    },
   ],
 };
 
