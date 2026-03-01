@@ -4,7 +4,7 @@ import { CORS_HEADERS, corsResponse } from "@/lib/api";
 import { resolveApiKey } from "@/lib/trial-key";
 
 const DEFAULT_CHARACTER = {
-  id: "my_char", name: "ミオ", emoji: "👧", color: "#FF6B9D",
+  id: "mio", name: "ミオ", emoji: "👧", color: "#FF6B9D",
   personality: "元気で好奇心旺盛。ちょっとおっちょこちょいだけど一生懸命。教えてもらうのが大好き。",
   speaking_style: "タメ口で親しみやすい。語尾に「！」「〜」が多い。「えっ！」「すごい！」など感嘆詞豊富。",
   praise: "「えっ、すごい！！めっちゃわかった！！もっと教えて〜！」",
@@ -41,9 +41,11 @@ export async function POST(req: NextRequest) {
 
     if (mode === "init") {
       const profileStr = (profile || []).slice(0, 5).map(e => `「${e.title}」${e.score}点`).join("、") || "まだ学習なし";
+      const charIds = ["mio", "sora", "haru", "rin"];
+      const chosenId = charIds[Math.floor(Math.random() * charIds.length)];
       const prompt = `ユーザーのAI学習パートナーを1体生成してください。学習履歴: ${profileStr}
-以下のJSONのみ出力:
-{"id":"my_char","name":"ひらがな2〜4文字","emoji":"絵文字1文字","color":"#hex","personality":"性格20〜40文字","speaking_style":"口調20〜40文字","praise":"「褒めセリフ」","struggle":"「困惑セリフ」","confused":"「質問セリフ」","intro":"初回挨拶50〜80文字","lore":"バックストーリー30文字以内","interests":["興味1","興味2"],"knowledge_areas":[],"growth_stages":[{"label":"出会い","threshold":0},{"label":"なかよし","threshold":3},{"label":"心の友","threshold":8},{"label":"ずっとそばに","threshold":15}],"evolution_log":[]}`;
+以下のJSONのみ出力（idは必ず"${chosenId}"を使用）:
+{"id":"${chosenId}","name":"ひらがな2〜4文字","emoji":"絵文字1文字","color":"#hex","personality":"性格20〜40文字","speaking_style":"口調20〜40文字","praise":"「褒めセリフ」","struggle":"「困惑セリフ」","confused":"「質問セリフ」","intro":"初回挨拶50〜80文字","lore":"バックストーリー30文字以内","interests":["興味1","興味2"],"knowledge_areas":[],"growth_stages":[{"label":"出会い","threshold":0},{"label":"なかよし","threshold":3},{"label":"心の友","threshold":8},{"label":"ずっとそばに","threshold":15}],"evolution_log":[]}`;
       const res = await callLLM({ provider, apiKey: effectiveKey, messages: [{ role: "user", content: prompt }], maxTokens: 800 });
       const m = res.text.replace(/```json\s*/g,"").replace(/```\s*/g,"").trim().match(/\{[\s\S]*\}/);
       if (!m) return NextResponse.json({ error: "生成失敗" }, { status: 500 });

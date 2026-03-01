@@ -107,6 +107,30 @@ function detectProviderLabel(key: string): { label: string; color: string; place
   return { label: "APIキー未設定", color: "#bbb", placeholder: "sk-ant-... / sk-... / AIza... / aws:..." };
 }
 
+// ─── App Version（キャッシュ整合性チェック）───────────────────
+const APP_VERSION = "2.1.0";
+function checkAppVersion() {
+  if (typeof window === "undefined") return;
+  try {
+    const saved = localStorage.getItem("tg_app_version");
+    if (saved !== APP_VERSION) {
+      // バージョン不一致 → 古いキャッシュデータをクリーンアップ
+      localStorage.setItem("tg_app_version", APP_VERSION);
+      // キャラクターデータのマイグレーションをトリガー
+      const charStr = localStorage.getItem("tg_char");
+      if (charStr) {
+        try {
+          const char = JSON.parse(charStr);
+          if (char.id === "my_char") {
+            // 旧IDを持つキャラを削除して再取得させる
+            localStorage.removeItem("tg_char");
+          }
+        } catch { localStorage.removeItem("tg_char"); }
+      }
+    }
+  } catch {}
+}
+
 // ─── Storage（防御的バージョン v2）─────────────────────────────
 // データ構造バリデーション + 破損時自動クリア + save時のquota超過防御
 function loadProfile(): ProfileEntry[] {
@@ -127,6 +151,18 @@ function saveProfileEntry(e: ProfileEntry) {
     localStorage.setItem("tg_profile", JSON.stringify(arr.slice(0, 100)));
   } catch { /* quota超過等 */ }
 }
+// キャラクターIDマイグレーション（旧 "my_char" → 正しいID）
+const CHAR_NAME_TO_ID: Record<string, string> = {
+  "ミオ": "mio", "ソラ": "sora", "ハル": "haru", "リン": "rin",
+};
+function migrateCharId(char: Character): Character {
+  if (char.id === "my_char" || !["mio", "sora", "haru", "rin"].includes(char.id)) {
+    const newId = CHAR_NAME_TO_ID[char.name] || "mio";
+    return { ...char, id: newId };
+  }
+  return char;
+}
+
 function loadChar(): Character | null {
   if (typeof window === "undefined") return null;
   try {
@@ -137,7 +173,12 @@ function loadChar(): Character | null {
       localStorage.removeItem("tg_char"); return null;
     }
     if (parsed.growth_stages && !Array.isArray(parsed.growth_stages)) parsed.growth_stages = [];
-    return parsed as Character;
+    // 旧IDマイグレーション
+    const migrated = migrateCharId(parsed as Character);
+    if (migrated.id !== parsed.id) {
+      try { localStorage.setItem("tg_char", JSON.stringify(migrated)); } catch {}
+    }
+    return migrated;
   } catch { localStorage.removeItem("tg_char"); return null; }
 }
 function saveChar(c: Character) {
@@ -1070,6 +1111,9 @@ export default function App() {
 
   // ── Init（防御的バージョン）──────────────────────────────────
   useEffect(() => {
+    // アプリバージョンチェック（古いキャッシュデータのクリーンアップ）
+    checkAppVersion();
+
     try {
       const k = localStorage.getItem("tg_apikey") || "";
       setApiKey(k); setApiInput(k);

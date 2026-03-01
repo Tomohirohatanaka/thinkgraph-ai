@@ -138,7 +138,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
   const selectCharacter = (preset: typeof CHARACTER_PRESETS[0]) => {
     const char = {
-      id: "my_char", name: preset.name, emoji: preset.emoji, color: preset.color,
+      id: preset.id, name: preset.name, emoji: preset.emoji, color: preset.color,
       personality: preset.personality + "。教えてもらうのが大好き。",
       speaking_style: "タメ口で親しみやすい。語尾に「！」「〜」が多い。",
       praise: "「えっ、すごい！！めっちゃわかった！！もっと教えて〜！」",
