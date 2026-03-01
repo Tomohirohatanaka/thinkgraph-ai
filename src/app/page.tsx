@@ -401,16 +401,74 @@ function Ring({ value, color, label, size = 64 }: { value: number; color: string
 
 function Avatar({ char, size = 44, pulse, expression }: { char: Character; size?: number; pulse?: boolean; expression?: "happy" | "confused" | "thinking" | "neutral" }) {
   const expressionEmoji = expression === "happy" ? "\u2764\uFE0F" : expression === "confused" ? "\u2753" : expression === "thinking" ? "\uD83D\uDCA1" : null;
+  // キャラクター別イラストSVGマップ
+  const charIllustration: Record<string, { face: string; hair: string; accent: string }> = {
+    mio:  { face: "#FFE0C2", hair: "#FF6B9D", accent: "#FF9EC6" },
+    sora: { face: "#FFE0C2", hair: "#3A8BD2", accent: "#45B7D1" },
+    haru: { face: "#FFE0C2", hair: "#2EAD9A", accent: "#4ECDC4" },
+    rin:  { face: "#FFE0C2", hair: "#7B3FA0", accent: "#A855F7" },
+  };
+  const illust = charIllustration[char.id] || charIllustration.mio;
+  const r = size / 2;
+  const uid = `av_${char.id}_${size}`;
   return (
     <div className="avatar-breathe" style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
-      <div className={pulse ? "avatar-glow" : ""} style={{
-        width: size, height: size, borderRadius: "50%",
-        background: `${char.color}20`, border: `2px solid ${char.color}50`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: size * 0.48,
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={pulse ? "avatar-glow" : ""} style={{
+        filter: pulse ? `drop-shadow(0 0 ${size * 0.15}px ${char.color}60)` : `drop-shadow(0 2px ${size * 0.08}px ${char.color}30)`,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "--glow-color": `${char.color}40`,
-      } as any}>{char.emoji}</div>
+      } as any}>
+        <defs>
+          <radialGradient id={`${uid}_bg`} cx="50%" cy="40%" r="55%">
+            <stop offset="0%" stopColor={`${char.color}35`} />
+            <stop offset="100%" stopColor={`${char.color}12`} />
+          </radialGradient>
+          <radialGradient id={`${uid}_face`} cx="45%" cy="35%" r="50%">
+            <stop offset="0%" stopColor="#FFF0E0" />
+            <stop offset="100%" stopColor={illust.face} />
+          </radialGradient>
+          <linearGradient id={`${uid}_hair`} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={illust.hair} />
+            <stop offset="100%" stopColor={illust.accent} />
+          </linearGradient>
+          <linearGradient id={`${uid}_ring`} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={char.color} />
+            <stop offset="50%" stopColor={illust.accent} />
+            <stop offset="100%" stopColor={char.color} />
+          </linearGradient>
+        </defs>
+        {/* 外側リング */}
+        <circle cx={r} cy={r} r={r - 1} fill="none" stroke={`url(#${uid}_ring)`} strokeWidth={size * 0.04} opacity="0.7" />
+        {/* 背景 */}
+        <circle cx={r} cy={r} r={r - size * 0.06} fill={`url(#${uid}_bg)`} />
+        {/* 顔 */}
+        <circle cx={r} cy={r * 1.05} r={r * 0.42} fill={`url(#${uid}_face)`} />
+        {/* 髪 */}
+        <ellipse cx={r} cy={r * 0.72} rx={r * 0.48} ry={r * 0.38} fill={`url(#${uid}_hair)`} />
+        {/* 目 */}
+        <circle cx={r - r * 0.15} cy={r * 1.0} r={r * 0.06} fill="#333" />
+        <circle cx={r + r * 0.15} cy={r * 1.0} r={r * 0.06} fill="#333" />
+        {/* 目のハイライト */}
+        <circle cx={r - r * 0.13} cy={r * 0.97} r={r * 0.025} fill="#fff" />
+        <circle cx={r + r * 0.17} cy={r * 0.97} r={r * 0.025} fill="#fff" />
+        {/* 口 */}
+        {expression === "happy" ? (
+          <path d={`M ${r - r * 0.12} ${r * 1.18} Q ${r} ${r * 1.32} ${r + r * 0.12} ${r * 1.18}`} fill="none" stroke="#E8846B" strokeWidth={r * 0.04} strokeLinecap="round" />
+        ) : expression === "confused" ? (
+          <circle cx={r} cy={r * 1.2} r={r * 0.06} fill="#E8846B" />
+        ) : expression === "thinking" ? (
+          <path d={`M ${r - r * 0.08} ${r * 1.2} L ${r + r * 0.08} ${r * 1.18}`} stroke="#E8846B" strokeWidth={r * 0.04} strokeLinecap="round" />
+        ) : (
+          <path d={`M ${r - r * 0.1} ${r * 1.18} Q ${r} ${r * 1.26} ${r + r * 0.1} ${r * 1.18}`} fill="none" stroke="#E8846B" strokeWidth={r * 0.035} strokeLinecap="round" />
+        )}
+        {/* ほっぺた */}
+        <circle cx={r - r * 0.32} cy={r * 1.12} r={r * 0.08} fill={`${char.color}25`} />
+        <circle cx={r + r * 0.32} cy={r * 1.12} r={r * 0.08} fill={`${char.color}25`} />
+        {/* キャラ固有装飾 */}
+        {char.id === "rin" && (
+          <rect x={r - r * 0.03} y={r * 0.52} width={r * 0.06} height={r * 0.22} rx={r * 0.03} fill={illust.accent} opacity="0.6" />
+        )}
+      </svg>
       {expressionEmoji && (
         <span className="expression-bubble">{expressionEmoji}</span>
       )}
@@ -460,7 +518,7 @@ function StageUpBanner({ char, newStage, onDone }: { char: Character; newStage: 
         border: `2px solid ${char.color}40`,
         minWidth: 260,
       }}>
-        <div style={{ fontSize: 56, marginBottom: "0.4rem" }}>{char.emoji}</div>
+        <div style={{ marginBottom: "0.4rem", display: "flex", justifyContent: "center" }}><Avatar char={char} size={72} expression="happy" pulse /></div>
         <div style={{ fontSize: 11, letterSpacing: "0.2em", color: char.color, fontWeight: 800, marginBottom: "0.4rem" }}>STAGE UP</div>
         <div style={{ fontSize: 24, fontWeight: 900, color: "#fff", marginBottom: "0.5rem" }}>{newStage}</div>
         <div style={{ fontSize: 13, color: "#777" }}>{char.custom_name || char.name}との絆が深まった</div>
@@ -804,7 +862,9 @@ function CharDetail({
       <div style={{ padding: "1.25rem", maxWidth: 600, margin: "0 auto" }}>
         {/* キャラクターカード */}
         <div className="card" style={{ background: `${cc}08`, borderColor: `${cc}30`, marginBottom: "1rem", textAlign: "center" }}>
-          <div style={{ fontSize: 72, marginBottom: "0.5rem" }}>{char.emoji}</div>
+          <div style={{ marginBottom: "0.5rem", display: "flex", justifyContent: "center" }}>
+            <Avatar char={char} size={96} expression="happy" />
+          </div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#222", marginBottom: "0.2rem" }}>{char.custom_name || char.name}</div>
           {char.custom_name && <div style={{ fontSize: 11, color: "#bbb", marginBottom: "0.2rem" }}>（{char.name}）</div>}
           <div style={{ fontSize: 13, color: "#666", marginBottom: "0.75rem", lineHeight: 1.6 }}>{char.custom_personality || char.personality}</div>
@@ -1839,7 +1899,7 @@ export default function App() {
           <div className="overlay" onClick={() => setShowQuit(false)}>
             <div className="modal" onClick={e => e.stopPropagation()}>
               <div style={{ textAlign: "center", marginBottom: "1rem" }}>
-                <div style={{ fontSize: 44, marginBottom: "0.5rem" }}>{char?.emoji ?? "😓"}</div>
+                <div style={{ marginBottom: "0.5rem", display: "flex", justifyContent: "center" }}>{char ? <Avatar char={char} size={56} expression="confused" /> : <span style={{ fontSize: 44 }}>😓</span>}</div>
                 <div style={{ fontSize: 17, fontWeight: 800, color: "#222" }}>教材を読み直してみよう</div>
               </div>
               <div style={{ fontSize: 13, color: "#555", lineHeight: 1.75, marginBottom: "1.25rem", background: "#fafafa", padding: "0.75rem", borderRadius: 12 }}>{quitMsg}</div>
@@ -2276,6 +2336,30 @@ export default function App() {
 
           {tab === "learn" && (
             <>
+              {/* ログイン済みウェルカムバナー + API状態 */}
+              {authUser && !apiKey && trialAvailable && profile.length === 0 && (
+                <div style={{
+                  padding: "1rem 1.25rem", borderRadius: 16, marginBottom: "1rem",
+                  background: "linear-gradient(135deg, #0A234208, #1A6B7208)",
+                  border: "1.5px solid #1A6B7218",
+                }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#0A2342", marginBottom: "0.3rem" }}>
+                    ようこそ、{authUser.name?.split("@")[0]}さん！
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.6, marginBottom: "0.5rem" }}>
+                    APIキーなしですぐに使えます。下の教材入力にテーマを入れて、AIに教えてみましょう。
+                  </div>
+                  <div style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "4px 12px", borderRadius: 100,
+                    background: "#10B98115", border: "1px solid #10B98125",
+                    fontSize: 11, fontWeight: 700, color: "#10B981",
+                  }}>
+                    ✨ すぐに使えます
+                  </div>
+                </div>
+              )}
+
               {/* キャラバナー (enhanced with greeting & mood) */}
               {char ? (() => {
                 const hour = new Date().getHours();
