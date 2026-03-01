@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { resolveApiKey } from "@/lib/trial-key";
 
 const DEMO_TEXT = `
 なぜなぜ分析（5Why分析）研修テキスト
@@ -44,7 +45,10 @@ export async function POST(req: NextRequest) {
   try {
     const { apiKey, domain, trainingText } = await req.json();
     const text = trainingText?.trim() || DEMO_TEXT;
-    const provider = detectProvider(apiKey);
+    const resolved = resolveApiKey(apiKey);
+    if (!resolved) return NextResponse.json({ error: "APIキーが必要です" }, { status: 400 });
+    const effectiveKey = resolved.key;
+    const provider = detectProvider(effectiveKey);
 
     const prompt = `あなたは製造業の研修効果測定の専門家です。
 以下の研修資料を分析して、理想的な思考構造グラフをJSON形式で生成してください。
@@ -76,7 +80,7 @@ JSONのみ出力。前置きなし。`;
 
     const llmRes = await callLLM({
       provider,
-      apiKey,
+      apiKey: effectiveKey,
       messages: [{ role: "user", content: prompt }],
       maxTokens: 2000,
     });

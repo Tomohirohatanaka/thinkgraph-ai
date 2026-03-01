@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider, LLMContentPart } from "@/lib/llm";
 import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { resolveApiKey } from "@/lib/trial-key";
 
 // ─── YouTube ─────────────────────────────────────────────────
 function extractYouTubeId(url: string): string | null {
@@ -205,10 +206,13 @@ export async function POST(req: NextRequest) {
     };
 
     step = "validate_key";
-    if (!apiKey?.length) return NextResponse.json({ error: "有効なAPIキーを入力してください" }, { status: 400 });
+    const resolved = resolveApiKey(apiKey);
+    if (!resolved) return NextResponse.json({ error: "有効なAPIキーを入力してください" }, { status: 400 });
+    const effectiveKey = resolved.key;
+    const isTrial = resolved.isTrial;
 
     step = "create_client";
-    const provider = detectProvider(apiKey);
+    const provider = detectProvider(effectiveKey);
 
     // ── コンテンツ構築 ──
     let rawContent = text;
@@ -274,7 +278,7 @@ export async function POST(req: NextRequest) {
     step = "call_api";
     const llmRes = await callLLM({
       provider,
-      apiKey,
+      apiKey: effectiveKey,
       system: SYSTEM_PROMPT,
       messages: [{
         role: "user",
@@ -302,6 +306,7 @@ export async function POST(req: NextRequest) {
       source_url: url || null,
       word_count: rawContent.length,
       provider,
+      isTrial,
     }, { headers: CORS_HEADERS });
 
   } catch (e: unknown) {

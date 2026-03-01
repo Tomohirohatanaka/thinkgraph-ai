@@ -201,65 +201,77 @@ function useSpeechRec() {
   const recRef = useRef<SpeechRecognition | null>(null);
   const [supported, setSupported] = useState(false);
   const latest = useRef("");
+  const holdingRef = useRef(false);
   useEffect(() => {
     const SR = window.SpeechRecognition || (window as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
     if (!SR) return;
     setSupported(true);
-    const r = new SR(); r.lang = "ja-JP"; r.continuous = false; r.interimResults = true;
+    // continuous=true で押している間ずっと認識し続ける
+    const r = new SR(); r.lang = "ja-JP"; r.continuous = true; r.interimResults = true;
     recRef.current = r;
   }, []);
   const start = useCallback((onInterim: (t: string) => void, onFinal: (t: string) => void) => {
     const r = recRef.current; if (!r) return;
     latest.current = "";
+    holdingRef.current = true;
+    let accumulated = "";
     r.onresult = (e) => {
       let interim = "", final = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) final += e.results[i][0].transcript;
         else interim += e.results[i][0].transcript;
       }
-      if (interim) { latest.current = interim; onInterim(interim); }
-      if (final) { latest.current = final; onInterim(final); }
+      if (final) { accumulated += final; latest.current = accumulated; }
+      onInterim(accumulated + (interim ? interim : ""));
     };
-    r.onend = () => onFinal(latest.current);
-    r.onerror = () => onFinal(latest.current);
+    r.onend = () => {
+      // ボタンを離した後のみfinalを呼ぶ
+      if (!holdingRef.current) {
+        onFinal(latest.current || accumulated);
+      } else {
+        // まだ押されている場合は再開（ブラウザが自動停止した場合の対策）
+        try { r.start(); } catch { onFinal(latest.current || accumulated); }
+      }
+    };
+    r.onerror = () => {
+      if (!holdingRef.current) onFinal(latest.current);
+    };
     try { r.start(); } catch {}
   }, []);
-  const stop = useCallback(() => recRef.current?.stop(), []);
+  const stop = useCallback(() => {
+    holdingRef.current = false;
+    recRef.current?.stop();
+  }, []);
   return { supported, start, stop };
 }
 
-// テキストを音声読み上げ用にクリーニング
+// テキストを音声読み上げ用にクリーニング（全文読み上げ対応）
 function cleanForSpeech(raw: string): string {
   return raw
     // JSONブロックを除去（採点結果などが混入しないよう）
     .replace(/```[\s\S]*?```/g, "")
     .replace(/\{[\s\S]{10,}\}/g, (m) => {
-      // JSONっぽい（キーコロン構造）ものだけ除去
       if (/"[^"]+"\s*:/.test(m)) return "";
       return m;
     })
     // マークダウン記法を読み上げ用に変換
-    .replace(/\*\*(.+?)\*\*/g, "$1")   // **bold** → bold
-    .replace(/\*(.+?)\*/g, "$1")       // *italic* → italic
-    .replace(/#+\s*/g, "")             // ## heading
-    .replace(/`([^`]+)`/g, "$1")       // `code` → code
-    .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1")  // [link](url) → link
-    .replace(/https?:\/\/\S+/g, "")   // URL除去
-    .replace(/[（）「」【】『』〔〕《》〈〉]/g, (c) => {
-      // 括弧は読み上げ時のポーズとして空白に
-      return " ";
-    })
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/#+\s*/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[（）「」【】『』〔〕《》〈〉]/g, " ")
     .replace(/\n{2,}/g, "。")
     .replace(/\n/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    // 長すぎる場合は最初の2文だけ読む
-    .slice(0, 120);
+    .trim();
+  // 全文を読み上げる（truncateしない）
 }
 
 function useSynth() {
-  // voices が非同期ロードのため ref で保持
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
     const load = () => { voicesRef.current = window.speechSynthesis?.getVoices() ?? []; };
@@ -268,37 +280,57 @@ function useSynth() {
     return () => window.speechSynthesis?.removeEventListener("voiceschanged", load);
   }, []);
 
+  // 長文をチャンク分割して順番に読み上げる（Chromium 15秒制限対策）
   const speak = useCallback((text: string, cb?: () => void) => {
     if (!window.speechSynthesis) { cb?.(); return; }
     window.speechSynthesis.cancel();
+    cancelledRef.current = false;
 
     const cleaned = cleanForSpeech(text);
     if (!cleaned) { cb?.(); return; }
 
-    const u = new SpeechSynthesisUtterance(cleaned);
-    u.lang = "ja-JP"; u.rate = 1.05; u.pitch = 1.05;
+    // 句点・疑問符・感嘆符で分割して150文字以内のチャンクに
+    const sentences = cleaned.split(/(?<=[。！？!?])\s*/g).filter(s => s.trim());
+    const chunks: string[] = [];
+    let buf = "";
+    for (const s of sentences) {
+      if (buf.length + s.length > 150 && buf) { chunks.push(buf); buf = s; }
+      else buf += s;
+    }
+    if (buf) chunks.push(buf);
+    if (!chunks.length) { cb?.(); return; }
 
-    // 日本語音声を優先（Google音声 > その他の日本語）
     const voices = voicesRef.current;
     const jaGoogle = voices.find(v => v.lang.startsWith("ja") && v.name.includes("Google"));
-    const jaAny    = voices.find(v => v.lang.startsWith("ja"));
-    if (jaGoogle) u.voice = jaGoogle;
-    else if (jaAny) u.voice = jaAny;
+    const jaAny = voices.find(v => v.lang.startsWith("ja"));
 
-    u.onend   = () => cb?.();
-    u.onerror = () => cb?.();
+    let idx = 0;
+    const speakNext = () => {
+      if (cancelledRef.current || idx >= chunks.length) { cb?.(); return; }
+      const u = new SpeechSynthesisUtterance(chunks[idx]);
+      u.lang = "ja-JP"; u.rate = 1.05; u.pitch = 1.05;
+      if (jaGoogle) u.voice = jaGoogle;
+      else if (jaAny) u.voice = jaAny;
 
-    // Chromium bug: 15秒以上でspeakが止まることがある → workaround
-    const timer = setTimeout(() => {
-      window.speechSynthesis.pause();
-      window.speechSynthesis.resume();
-    }, 10000);
-    u.onend = () => { clearTimeout(timer); cb?.(); };
+      // Chromium workaround: keep alive during utterance
+      const keepAlive = setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        }
+      }, 12000);
 
-    window.speechSynthesis.speak(u);
+      u.onend = () => { clearInterval(keepAlive); idx++; speakNext(); };
+      u.onerror = () => { clearInterval(keepAlive); idx++; speakNext(); };
+      window.speechSynthesis.speak(u);
+    };
+    speakNext();
   }, []);
 
-  const cancel = useCallback(() => window.speechSynthesis?.cancel(), []);
+  const cancel = useCallback(() => {
+    cancelledRef.current = true;
+    window.speechSynthesis?.cancel();
+  }, []);
   return { speak, cancel };
 }
 
@@ -427,8 +459,8 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
   if (!profile.length) return (
     <div style={{ textAlign: "center", padding: "3rem 1rem", color: "#bbb" }}>
       <div style={{ fontSize: 48, marginBottom: "1rem" }}>📚</div>
-      <div style={{ fontSize: 16, fontWeight: 600, color: "#444", marginBottom: "0.5rem" }}>まだ学習履歴がありません</div>
-      <div style={{ fontSize: 13 }}>学習タブでセッションを行うとスキルマップが生成されます</div>
+      <div style={{ fontSize: 16, fontWeight: 600, color: "#444", marginBottom: "0.5rem" }}>まだ教えた履歴がありません</div>
+      <div style={{ fontSize: 13 }}>「AIに教える」タブでセッションを行うとスキルマップが生成されます</div>
     </div>
   );
   if (skillLoading) return (
@@ -641,6 +673,8 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardStep, setOnboardStep] = useState(0);
   const [streak, setStreak] = useState<StreakData>({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
+  const [trialAvailable, setTrialAvailable] = useState(false);
+  const [historyPopup, setHistoryPopup] = useState<ProfileEntry | null>(null);
 
   const [topic, setTopic] = useState<TopicData | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -769,6 +803,11 @@ export default function App() {
     // Streak & Onboarding
     try { setStreak(loadStreak()); } catch {}
     if (!isOnboarded()) setShowOnboarding(true);
+
+    // Trial key check
+    fetch("/api/trial").then(r => r.json()).then(d => {
+      if (d.available) setTrialAvailable(true);
+    }).catch(() => {});
 
     return () => { subscription?.unsubscribe(); };
   }, []);
@@ -1031,7 +1070,7 @@ export default function App() {
 
   // ── Ingest ───────────────────────────────────────────────────
   async function handleStart() {
-    if (!apiKey) { setShowApiModal(true); return; }
+    if (!apiKey && !trialAvailable) { setShowApiModal(true); return; }
     if (!inputUrl.trim() && !inputText.trim() && !fileContent && !fileData) {
       setError("URLかテキストを入力してください"); return;
     }
@@ -1403,8 +1442,8 @@ export default function App() {
       ? (v3w >= 4.2 ? "🎉" : v3w >= 3.4 ? "✨" : v3w >= 2.6 ? "💪" : "📚")
       : (total >= 85 ? "🎉" : total >= 70 ? "✨" : total >= 50 ? "💪" : "📚");
     const headline = isV3
-      ? (v3w >= 4.2 ? "完璧な説明！" : v3w >= 3.4 ? "よくできました！" : v3w >= 2.6 ? "もう少し深めよう！" : "教材を読み直そう")
-      : (total >= 85 ? "完璧な説明！" : total >= 70 ? "よくできました！" : total >= 50 ? "もう少し深めよう！" : "教材を読み直そう");
+      ? (v3w >= 4.2 ? "完璧に教えられた！" : v3w >= 3.4 ? "上手に教えられた！" : v3w >= 2.6 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう")
+      : (total >= 85 ? "完璧に教えられた！" : total >= 70 ? "上手に教えられた！" : total >= 50 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう");
     const hasPenalty = !isV3 && (result.leading_penalty > 0 || result.gave_up_penalty > 0);
     const gradeColor = (g?: string) =>
       g === "S" ? "#FFD700" : g === "A" ? cc : g === "B" ? "#4ECDC4" : g === "C" ? "#F5A623" : "#FF6B6B";
@@ -1423,7 +1462,7 @@ export default function App() {
               {char && (
                 <div style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem", padding: "0.3rem 0.75rem", borderRadius: 100, background: `${cc}12`, border: `1px solid ${cc}30` }}>
                   <span>{char.emoji}</span>
-                  <span style={{ fontSize: 12, color: cc, fontWeight: 600 }}>{char.name} との学習セッション</span>
+                  <span style={{ fontSize: 12, color: cc, fontWeight: 600 }}>{char.name}に教えたセッション</span>
                 </div>
               )}
               {isV3 && (
@@ -1677,7 +1716,7 @@ export default function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#222", letterSpacing: "-0.5px" }}>
-            teach<span style={{ color: cc }}>AI</span>
+            teach<span style={{ color: "#FF6B9D" }}>AI</span>
           </div>
           {streak.currentStreak > 0 && (
             <div style={{
@@ -1721,15 +1760,9 @@ export default function App() {
 
           {/* Tabs */}
           <div className="tab-nav">
-            <button className={`tab-btn ${tab === "learn" ? "active" : ""}`} onClick={() => setTab("learn")}>✨ 学習する</button>
+            <button className={`tab-btn ${tab === "learn" ? "active" : ""}`} onClick={() => setTab("learn")}>✨ AIに教える</button>
             <button className={`tab-btn ${tab === "skills" ? "active" : ""}`} onClick={() => setTab("skills")}>📊 スキルマップ</button>
-            <a href="/api/docs" target="_blank" rel="noopener" style={{
-              marginLeft: "auto", fontSize: 11, color: "#bbb", textDecoration: "none",
-              display: "flex", alignItems: "center", gap: "0.25rem", padding: "0.25rem 0.5rem",
-              border: "1px solid #eee", borderRadius: 8,
-            }} title="API ドキュメント（開発者向け）">
-              <span>⚡</span><span>API</span>
-            </a>
+{/* API docs link moved to dashboard */}
           </div>
 
           {tab === "learn" && (
@@ -1769,11 +1802,10 @@ export default function App() {
                 {(() => {
                   const inputMode = inputUrl.trim() ? "url"
                     : (fileContent || fileData) ? "file"
-                    : inputText.trim() ? "text"
-                    : "url";
+                    : "text";
                   const tabs = [
-                    { id: "url",  icon: "🔗", label: "URL" },
                     { id: "text", icon: "✏️", label: "テキスト" },
+                    { id: "url",  icon: "🔗", label: "URL" },
                     { id: "file", icon: "📎", label: "ファイル" },
                   ] as const;
                   return (
@@ -1798,24 +1830,22 @@ export default function App() {
                         ))}
                       </div>
 
+                      {/* テキスト入力（デフォルト表示） */}
+                      {inputMode === "text" && !inputUrl.trim() && !(fileContent || fileData) && (
+                        <textarea value={inputText}
+                          onChange={e => { setInputText(e.target.value); setFileContent(""); }}
+                          placeholder="AIに教えたい内容を自由に書いてください。例: 光合成の仕組み、量子コンピュータとは、三角関数の公式..."
+                          rows={4} className="input-base" style={{ resize: "vertical", marginBottom: 0 }} />
+                      )}
+
                       {/* URL入力 */}
-                      {(inputMode === "url" || !inputText.trim()) && !(fileContent || fileData) && (
+                      {inputMode === "url" && !(fileContent || fileData) && (
                         <input value={inputUrl}
                           onChange={e => { setInputUrl(e.target.value); setFileContent(""); setFileData(null); setFileInfo(null); setInputText(""); }}
                           placeholder="YouTube URL / WebサイトURL / ブログ記事URL..."
                           className="input-base"
                           style={{ marginBottom: "0.5rem" }}
                           onKeyDown={e => e.key === "Enter" && handleStart()} />
-                      )}
-
-                      {/* テキスト入力 */}
-                      {(inputMode === "text" || inputText.trim()) && !inputUrl.trim() && !(fileContent || fileData) && (
-                        <textarea value={inputText}
-                          onChange={e => { setInputText(e.target.value); setFileContent(""); }}
-                          placeholder="本・記事・メモの内容を貼り付けるか、学びたいことを自由に書いてください... 例: 光合成について"
-
-
-                          rows={5} className="input-base" style={{ resize: "vertical", marginBottom: 0 }} />
                       )}
 
                       {/* ファイル添付 */}
@@ -1828,7 +1858,7 @@ export default function App() {
                       )}
 
                       {/* 対応フォーマット */}
-                      {inputMode !== "text" && !inputText.trim() && (
+                      {inputMode === "url" && (
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: "0.4rem" }}>
                           {["YouTube", "Web", "note", "Qiita", "Zenn", "PDF", "DOCX", "XLSX", "PPTX", "TXT", "JPG", "PNG"].map(f => (
                             <span key={f} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 100, background: "#f5f5f5", color: "#aaa" }}>{f}</span>
@@ -1843,87 +1873,94 @@ export default function App() {
 
                 <button className="btn-primary" onClick={handleStart} disabled={loading}
                   style={{ marginTop: "0.75rem", background: char ? cc : undefined }}>
-                  {loading ? "✨ AIが読み込んでいます..." : `${char ? char.emoji + " " : "✨ "}学習を始める`}
+                  {loading ? "✨ AIが読み込んでいます..." : `${char ? char.emoji + " " : "✨ "}AIに教え始める`}
                 </button>
               </div>
 
               <button className="btn-ghost" onClick={() => setShowApiModal(true)}
                 style={{ display: "block", width: "100%", textAlign: "center", fontSize: 12, color: "#bbb", padding: "0.4rem 0", marginBottom: "1.5rem" }}>
-                {apiKey ? `🔑 ${detectProviderLabel(apiKey).label}` : "⚠️ AIのAPIキーを設定してください"}
+                {apiKey ? `🔑 ${detectProviderLabel(apiKey).label}` : trialAvailable ? "🎁 お試しモードで利用中（APIキー設定で制限解除）" : "⚠️ AIのAPIキーを設定してください"}
               </button>
 
-              {/* プロアクティブ提案 */}
-              {profile.length > 0 && !proactive && apiKey && char && (
-                <button
-                  onClick={() => fetchProactive(profile, char)}
-                  style={{
-                    width: "100%", padding: "0.75rem 1rem", marginBottom: "1rem",
-                    background: `${cc}09`, border: `1.5px dashed ${cc}30`,
-                    borderRadius: 14, cursor: "pointer", textAlign: "left",
-                    fontSize: 12, color: "#bbb", fontFamily: "inherit",
-                    display: "flex", alignItems: "center", gap: "0.5rem",
-                  }}>
-                  <span style={{ fontSize: 18 }}>{char.emoji}</span>
-                  <span>{char.name}に「今日教えてほしいこと」を聞く</span>
-                </button>
-              )}
-              {proactive && (
-                <div className="fade-in card" style={{
-                  background: `${cc}08`, borderColor: `${cc}22`,
-                  marginBottom: "1rem",
-                }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", marginBottom: "0.75rem" }}>
-                    <span style={{ fontSize: 26 }}>{char?.emoji}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 11, color: cc, fontWeight: 700, marginBottom: "0.2rem" }}>
-                        {char?.name}からのリクエスト
-                      </div>
-                      <div style={{ fontSize: 13, color: "#444", lineHeight: 1.6 }}>
-                        {proactive.message}
-                      </div>
-                    </div>
-                    <button onClick={() => setProactive(null)} style={{ background: "none", border: "none", fontSize: 16, color: "#ddd", cursor: "pointer", padding: 0 }}>×</button>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    {(proactive.suggestions || []).map((s, i) => (
-                      <button key={i}
-                        onClick={() => {
-                          setInputText(s.topic);
-                          setProactive(null);
-                        }}
-                        style={{
-                          display: "flex", alignItems: "center", gap: "0.6rem",
-                          padding: "0.5rem 0.75rem", borderRadius: 10,
-                          background: "#fff", border: "1px solid #f0f0f0",
-                          cursor: "pointer", textAlign: "left", fontFamily: "inherit",
-                          transition: "all 0.15s",
-                        }}>
-                        <span style={{ fontSize: 18 }}>{s.emoji}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#333" }}>{s.topic}</div>
-                          <div style={{ fontSize: 11, color: "#bbb" }}>{s.reason}</div>
-                        </div>
-                        <span style={{ fontSize: 12, color: cc }}>教える →</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+{/* proactive suggestion removed — users now enter content directly */}
 
               {/* 履歴 */}
               {profile.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 11, color: "#ccc", marginBottom: "0.5rem", letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: 600 }}>最近の学習</div>
-                  {profile.slice(0, 5).map(e => (
-                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0", borderBottom: "1px solid #f5f5f5" }}>
+                  <div style={{ fontSize: 11, color: "#ccc", marginBottom: "0.5rem", letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: 600 }}>教えた履歴</div>
+                  {profile.slice(0, 8).map(e => (
+                    <button key={e.id}
+                      onClick={() => setHistoryPopup(e)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: "0.6rem",
+                        padding: "0.5rem 0", borderBottom: "1px solid #f5f5f5",
+                        width: "100%", textAlign: "left", background: "none",
+                        border: "none", borderBottomWidth: 1, borderBottomStyle: "solid",
+                        borderBottomColor: "#f5f5f5", cursor: "pointer", fontFamily: "inherit",
+                      }}>
                       <span style={{ fontSize: 18 }}>{MODE_EMOJI[e.mode]}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</div>
                         <div style={{ fontSize: 11, color: "#bbb" }}>{e.date}</div>
                       </div>
                       <div style={{ fontSize: 15, fontWeight: 800, color: e.score >= 70 ? "#4ECDC4" : e.score >= 50 ? "#F5A623" : "#FF6B6B" }}>{e.score}</div>
-                    </div>
+                      <span style={{ fontSize: 12, color: "#ddd" }}>›</span>
+                    </button>
                   ))}
+                </div>
+              )}
+
+              {/* 履歴詳細ポップアップ */}
+              {historyPopup && (
+                <div className="overlay" onClick={() => setHistoryPopup(null)}>
+                  <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
+                      <div>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: "#222" }}>{historyPopup.title}</div>
+                        <div style={{ fontSize: 12, color: "#bbb", marginTop: "0.2rem" }}>{historyPopup.date} · {MODE_EMOJI[historyPopup.mode]} {historyPopup.mode}</div>
+                      </div>
+                      <div style={{
+                        fontSize: 28, fontWeight: 900,
+                        color: historyPopup.score >= 70 ? "#4ECDC4" : historyPopup.score >= 50 ? "#F5A623" : "#FF6B6B",
+                      }}>{historyPopup.score}</div>
+                    </div>
+
+                    {/* スコア詳細 */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+                      <div style={{ background: "#f0fffe", borderRadius: 12, padding: "0.75rem" }}>
+                        <div style={{ fontSize: 11, color: "#4ECDC4", fontWeight: 700, marginBottom: "0.4rem" }}>✓ 教えられた概念</div>
+                        {historyPopup.mastered.length ? historyPopup.mastered.map(c => (
+                          <div key={c} style={{ fontSize: 12, color: "#333", padding: "0.1rem 0" }}>· {c}</div>
+                        )) : <div style={{ fontSize: 12, color: "#ccc" }}>—</div>}
+                      </div>
+                      <div style={{ background: "#fff5f5", borderRadius: 12, padding: "0.75rem" }}>
+                        <div style={{ fontSize: 11, color: "#FF6B6B", fontWeight: 700, marginBottom: "0.4rem" }}>△ もう一度教えたい</div>
+                        {historyPopup.gaps.length ? historyPopup.gaps.map(c => (
+                          <div key={c} style={{ fontSize: 12, color: "#333", padding: "0.1rem 0" }}>· {c}</div>
+                        )) : <div style={{ fontSize: 12, color: "#ccc" }}>—</div>}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button className="btn-primary" onClick={() => {
+                        setInputText(historyPopup.title);
+                        setHistoryPopup(null);
+                      }} style={{ flex: 1, marginTop: 0, background: cc }}>
+                        もう一度AIに教える
+                      </button>
+                      <button className="btn-primary" onClick={() => {
+                        const url = `${window.location.origin}?topic=${encodeURIComponent(historyPopup.title)}`;
+                        navigator.clipboard?.writeText(url);
+                      }} style={{ flex: 0, marginTop: 0, background: "#f5f5f5", color: "#555", padding: "0.875rem 1rem" }}>
+                        URL保存
+                      </button>
+                    </div>
+                    <button onClick={() => setHistoryPopup(null)} style={{
+                      display: "block", width: "100%", marginTop: "0.5rem",
+                      background: "none", border: "none", fontSize: 13, color: "#bbb",
+                      cursor: "pointer", padding: "0.5rem", fontFamily: "inherit",
+                    }}>閉じる</button>
+                  </div>
                 </div>
               )}
             </>
@@ -1947,16 +1984,16 @@ export default function App() {
             desc: "「AIに教える」ことで、あなたの理解が深まる。\n学術論文に基づくピアチュータリング手法で、記憶定着率が2.5倍に。",
           },
           {
-            emoji: "📄", title: "Step 1: 教材を読み込む",
-            desc: "YouTube URL、Webサイト、PDF、テキスト — なんでもOK。\nAIが内容を分析して学習セッションを自動生成します。",
+            emoji: "✏️", title: "Step 1: 教えたいことを入力",
+            desc: "学んだ内容をテキストで入力、\nまたはYouTube URL・PDF・Webサイトを貼り付け。\nAIが内容を分析してセッションを自動生成します。",
           },
           {
-            emoji: "🗣️", title: "Step 2: AIに教える",
-            desc: "AIキャラクターからの質問に、自分の言葉で答えましょう。\n音声でもテキストでもOK。教えるほど理解が深まります。",
+            emoji: "🗣️", title: "Step 2: AIキャラクターに教える",
+            desc: "AIキャラクターが質問してくるので、\n自分の言葉で教えてあげましょう。\n音声でもテキストでもOK。教えるほど理解が深まります。",
           },
           {
             emoji: "📊", title: "Step 3: スコアで成長を実感",
-            desc: "5つの軸で理解度を可視化。弱点がわかるから効率的に復習できます。\nAIキャラクターと一緒に成長しましょう！",
+            desc: "5つの軸であなたの「教える力」を可視化。\n弱点がわかるから効率的に復習できます。\nAIキャラクターと一緒に成長しましょう！",
           },
         ];
         const s = steps[onboardStep] || steps[0];
