@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       apiKey, topic, coreText, mode,
       history = [], userMessage, forceFinish = false,
       character, leadingPenalty = 0, gaveUpCount = 0, consecutiveFail = 0,
+      question_seeds = [],       // ingest APIで生成された質問シード
       // v3 追加パラメータ
       rqsHistory = [],           // 過去ターンのRQS配列
       stateHistory = [],         // 状態遷移履歴
@@ -84,6 +85,7 @@ export async function POST(req: NextRequest) {
       history: Turn[]; userMessage: string; forceFinish: boolean;
       character?: Character;
       leadingPenalty?: number; gaveUpCount?: number; consecutiveFail?: number;
+      question_seeds?: string[];
       // v3
       rqsHistory?: RQSResult[];
       stateHistory?: StateTransition[];
@@ -163,10 +165,10 @@ export async function POST(req: NextRequest) {
     }
 
     const modeMap: Record<string, string> = {
-      whynot: "なぜそうなるの？どういう仕組み？と原因・理由を掘り下げる",
-      vocabulary: "それってどういう意味？具体的な例は？と定義と具体例を求める",
-      concept: "全体的にどんな構造？それぞれの関係は？と全体像を確認する",
-      procedure: "次は何をするの？なんでその順番なの？と手順と理由を確認する",
+      whynot: "因果関係と「なぜ」を重視。表面的な説明には「でも、なんでそうなるの？」と深堀り。反例を使って理解を試す",
+      vocabulary: "定義の正確さと具体例を重視。「それって例えばどういうこと？」と実例を求める。類義語・対義語の区別を確認",
+      concept: "概念間の関係性と構造を重視。「AとBはどう違うの？」「全体像を教えて」と体系的理解を促す",
+      procedure: "手順の正確さと順序を重視。「次は何をするの？」「もし失敗したらどうなる？」と実践的理解を確認",
     };
     const modeGuide = modeMap[mode] ?? "意味・理由・構造を掘り下げる";
 
@@ -200,6 +202,7 @@ ${(coreText || "").slice(0, 3000)}
 3. 正確な説明にだけ反応する。曖昧・間違いは${confused}のように返す
 4. 1回の返答に質問1つだけ。${modeGuide}
 5. 返答は2〜4文。箇条書き禁止。自然な会話体。
+${question_seeds.length > 0 ? `\n## 質問のヒント（参考にしてよいが、そのまま使わず${name}の口調で自然に聞く）\n${question_seeds.map((s: string, i: number) => `${i + 1}. ${s}`).join("\n")}` : ""}
 ${thisLP > 0 ? "⚠️ 前の質問が誘導的でした。今回は中立的に聞き返してください。" : ""}
 ${v3StateGuide}`;
 
@@ -223,10 +226,13 @@ ${v3StateGuide}`;
   "spontaneity": 75,
   "total": 80,
   "feedback": "フィードバックは必ず元教材の内容と照合して具体的に。構成は(1)良かった点: ユーザーが正確に説明できた具体的な概念名・内容を引用して褒める (2)改善点: 不足・誤解があった具体的な部分を「〇〇については、本来△△なんだけど、□□って言ってたのがちょっとズレてたかな」のように指摘 (3)一言まとめ。全て${name}の口調で書く",
-  "mastered": ["正確に説明できた概念A", "概念B"],
-  "gaps": ["説明が不十分だった概念C"]
+  "mastered": ["正確に説明できた概念A", "概念B", "...最大10個まで抽出"],
+  "gaps": ["説明が不十分だった概念C"],
+  "improvement_suggestions": ["具体的な改善提案1", "具体的な改善提案2", "具体的な改善提案3"]
 }
 
+masteredには会話中でユーザーが正確に説明できたキーコンセプトを最大10個まで抽出してください。
+improvement_suggestionsにはユーザーの説明をより良くするための具体的な提案を3つ書いてください（例：「〇〇の因果関係をもう少し具体的に説明すると良い」「△△と□□の違いを明確にすると理解が深まる」など）。
 上記は例示。実際の会話内容に基づいて正確に採点してください。`;
 
     const finalSystem = `あなたは「${name}」${emoji}というキャラクターです。「${topic}」についての学習セッションを締めくくります。
@@ -284,8 +290,9 @@ ${scoringFormat}`;
       const messageText = preText || `${emoji} お疲れ様でした！`;
 
       const feedback = typeof parsed?.feedback === "string" ? parsed.feedback : "よく頑張りました！";
-      const mastered = Array.isArray(parsed?.mastered) ? (parsed.mastered as string[]) : [];
+      const mastered = Array.isArray(parsed?.mastered) ? (parsed.mastered as string[]).slice(0, 10) : [];
       const gaps = Array.isArray(parsed?.gaps) ? (parsed.gaps as string[]) : [];
+      const improvement_suggestions = Array.isArray(parsed?.improvement_suggestions) ? (parsed.improvement_suggestions as string[]).slice(0, 3) : [];
 
       // ─── v3 スコアリング ──────────────────────────────────
       if (USE_V3) {
@@ -342,6 +349,7 @@ ${scoringFormat}`;
           feedback,
           mastered,
           gaps,
+          improvement_suggestions,
           leading_penalty: 0,  // v3ではペナルティなし
           gave_up_penalty: 0,
         });
@@ -377,6 +385,7 @@ ${scoringFormat}`;
         feedback,
         mastered,
         gaps,
+        improvement_suggestions,
         leading_penalty: leadingPenalty + thisLP,
         gave_up_penalty: gaveUpCount * 12,
       });

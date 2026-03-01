@@ -183,6 +183,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
         @media (min-width: 768px) { .dash-kg-grid { grid-template-columns: 2fr 1fr; } }
         .dash-settings-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .dash-settings-grid { grid-template-columns: 1fr 1fr; } }
+        .dash-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .dash-header-actions { display: flex; align-items: center; gap: 8px; }
         .dash-header-name { font-size: 13px; color: #90B8C8; display: none; }
         @media (min-width: 640px) { .dash-header-name { display: inline; } }
@@ -199,7 +200,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
         <div className="dash-header-actions">
           <span className="dash-header-name">{user.name || user.email}</span>
           <button onClick={() => router.push("/")} style={{ padding: "7px 18px", background: BRAND.accent, color: "white", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
-            AIに教える
+            教えに行く →
           </button>
           <button onClick={handleLogout} style={{ padding: "7px 16px", background: "transparent", color: "#90B8C8", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
             ログアウト
@@ -234,6 +235,51 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
             </div>
           ))}
         </div>
+
+        {/* 強み・弱み分析 */}
+        {sessions.length > 0 && (() => {
+          const dims = [
+            { key: "score_knowledge_fidelity" as const, label: "概念理解度", icon: "📘" },
+            { key: "score_structural_integrity" as const, label: "構造整合度", icon: "🏗️" },
+            { key: "score_hypothesis_generation" as const, label: "仮説生成力", icon: "💡" },
+            { key: "score_thinking_depth" as const, label: "思考深度", icon: "🔬" },
+          ];
+          const dimAvgs = dims.map(d => {
+            const vals = sessions.map(s => s[d.key]).filter((v): v is number => v != null);
+            return { ...d, avg: vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0, count: vals.length };
+          }).filter(d => d.count > 0);
+          if (dimAvgs.length === 0) return null;
+          const sorted = [...dimAvgs].sort((a, b) => b.avg - a.avg);
+          const strongest = sorted[0];
+          const weakest = sorted[sorted.length - 1];
+          return (
+            <div style={{ background: "white", borderRadius: 14, padding: "18px 24px", marginBottom: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+              <div style={{ fontWeight: 700, color: BRAND.primary, fontSize: 14, marginRight: 8 }}>強み・弱み分析</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#D1FAE5", borderRadius: 10 }}>
+                <span style={{ fontSize: 16 }}>{strongest.icon}</span>
+                <span style={{ fontSize: 12, color: "#065F46", fontWeight: 700 }}>強み: {strongest.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#059669" }}>{Math.round(strongest.avg)}pt</span>
+              </div>
+              {strongest.key !== weakest.key && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#FEF3C7", borderRadius: 10 }}>
+                  <span style={{ fontSize: 16 }}>{weakest.icon}</span>
+                  <span style={{ fontSize: 12, color: "#92400E", fontWeight: 700 }}>伸びしろ: {weakest.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "#D97706" }}>{Math.round(weakest.avg)}pt</span>
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 12, marginLeft: "auto" }}>
+                {dimAvgs.map(d => (
+                  <div key={d.key} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: "#9CA3AF" }}>{d.label}</div>
+                    <div style={{ width: 40, background: "#E5E7EB", borderRadius: 3, height: 5, marginTop: 3 }}>
+                      <div style={{ width: `${d.avg}%`, background: d.key === strongest.key ? "#10B981" : d.key === weakest.key ? "#F59E0B" : BRAND.teal, height: "100%", borderRadius: 3 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "white", borderRadius: 10, padding: 4, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", width: "fit-content" }}>
@@ -383,7 +429,8 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                 </button>
               </div>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div className="dash-table-wrap">
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
                 <thead>
                   <tr style={{ background: "#F8FAFC" }}>
                     {["トピック", "モード", "グレード", "スコア", "日時", ""].map(h => (
@@ -422,6 +469,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}

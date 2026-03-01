@@ -336,7 +336,7 @@ input, textarea, select {
   border-radius: 24px;
   padding: 1.5rem 2rem;
   box-shadow: 0 8px 40px rgba(0,0,0,0.4);
-  min-width: 260px;
+  min-width: min(260px, 85vw);
 }
 
 .char-select-preview {
@@ -444,11 +444,19 @@ input, textarea, select {
   .input-bar { padding: 0.5rem 0.625rem; }
   .home-wrap { padding: 1.25rem 1rem calc(1.25rem + var(--safe-bottom)); }
   .modal { padding: 1.25rem 1rem; padding-bottom: calc(1.25rem + var(--safe-bottom)); }
+  .score-grid { grid-template-columns: 1fr 1fr; gap: 0.3rem; }
 }
 
 /* 認証ヘッダーのレスポンシブ */
 @media (max-width: 360px) {
   .tab-btn { font-size: 11px; padding: 0.45rem 0.3rem; }
+}
+
+@media (max-width: 320px) {
+  .tab-btn { font-size: 10px; padding: 0.4rem 0.2rem; }
+  .card { padding: 0.875rem; }
+  .home-wrap { padding: 1rem 0.75rem calc(1rem + var(--safe-bottom)); }
+  .chat-bubble { font-size: 12px; }
 }
 
 /* input range スタイル */
@@ -474,4 +482,30 @@ input[type="range"]::-moz-range-thumb {
   background: var(--accent);
   cursor: pointer;
   border: 2px solid #fff;
+}
+
+/* ── Landscape mode support ── */
+@media (max-height: 500px) and (orientation: landscape) {
+  .session-wrap { height: auto; min-height: 100dvh; }
+  .chat-area { max-height: 60vh; }
+  .stage-up-banner { min-width: 200px; padding: 1rem 1.5rem; }
+}
+
+/* ── Nav responsive ── */
+@media (max-width: 480px) {
+  nav { padding: 10px 12px !important; }
+}
+
+/* ── Dashboard responsive ── */
+.dash-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -1rem;
+  padding: 0 1rem;
+}
+.dash-table-wrap table {
+  min-width: 500px;
+}
+@media (max-width: 640px) {
+  .dash-kpi-grid { gap: 0.5rem !important; }
 }

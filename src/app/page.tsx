@@ -1018,6 +1018,11 @@ export default function App() {
   const [trialAvailable, setTrialAvailable] = useState(false);
   const [historyPopup, setHistoryPopup] = useState<ProfileEntry | null>(null);
   const [showCharEdit, setShowCharEdit] = useState(false);
+  const [showCharCreation, setShowCharCreation] = useState(false);
+  const [charCreationStep, setCharCreationStep] = useState(0);
+  const [charCreationPreset, setCharCreationPreset] = useState<string>("mio");
+  const [charCreationCustomName, setCharCreationCustomName] = useState("");
+  const [charCreationCustomPersonality, setCharCreationCustomPersonality] = useState("");
   const [charEditName, setCharEditName] = useState("");
   const [charEditPersonality, setCharEditPersonality] = useState("");
   const [charEditRate, setCharEditRate] = useState(1.05);
@@ -1107,9 +1112,62 @@ export default function App() {
   kbRef.current = kbSignals;
 
   const cc = char?.color || "#FF6B9D";
+  const cn = char?.custom_name || char?.name || "AI";
   const userTurns = turns.filter(t => t.role === "user").length;
 
-  // ── Init（防御的バージョン）──────────────────────────────────
+  // ── Supabase同期関数（アカウントベースのデータ管理）──────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function syncFromSupabase(user: any) {
+    try {
+      const res = await fetch("/api/user/sync");
+      const data = await res.json();
+      // キャラクター同期（Supabase優先、なければlocalStorage、なければキャラ作成促進）
+      if (data.character) {
+        const migrated = migrateCharId(data.character);
+        setChar(migrated);
+        saveChar(migrated);
+      } else if (!loadChar()) {
+        // キャラクターが未設定 → 新規ユーザー向けキャラクター作成フロー
+        setShowCharCreation(true);
+      }
+      // プロフィール同期（Supabaseのセッション履歴を使用）
+      if (data.profile && data.profile.length > 0) {
+        setProfile(data.profile);
+        try { localStorage.setItem("tg_profile", JSON.stringify(data.profile.slice(0, 100))); } catch {}
+      }
+      // ストリーク同期
+      if (data.streak) {
+        setStreak(data.streak);
+        try { localStorage.setItem("tg_streak", JSON.stringify(data.streak)); } catch {}
+      }
+    } catch { /* 同期失敗はサイレント（ローカルデータで動作） */ }
+  }
+
+  async function syncCharToSupabase(charData: Character) {
+    try {
+      await fetch("/api/user/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ character: charData }),
+      });
+    } catch { /* サイレント */ }
+  }
+
+  // ── ログアウト処理（デモ画面に完全復帰）────────────────────────
+  function handleLogout() {
+    // ユーザー固有データをクリア（デモ用のデフォルト状態に戻す）
+    try {
+      localStorage.removeItem("tg_char");
+      localStorage.removeItem("tg_profile");
+      localStorage.removeItem("tg_graph");
+      localStorage.removeItem("tg_apikey");
+      localStorage.removeItem("tg_streak");
+      localStorage.removeItem("tg_app_version");
+    } catch {}
+    window.location.href = "/api/auth/logout";
+  }
+
+  // ── Init（Supabase同期 + キャッシュ防止 + キャラクターオンボーディング）──
   useEffect(() => {
     // アプリバージョンチェック（古いキャッシュデータのクリーンアップ）
     checkAppVersion();
@@ -1140,16 +1198,23 @@ export default function App() {
         .catch(() => {});
     }
 
-    // 認証ユーザー確認
+    // 認証ユーザー確認 + Supabaseデータ同期
     let subscription: { unsubscribe: () => void } | null = null;
     try {
       const supabase = createClient();
       supabase.auth.getUser().then(({ data: { user } }) => {
-        if (user) setAuthUser({ email: user.email || "", name: user.user_metadata?.full_name || user.email || "" });
+        if (user) {
+          setAuthUser({ email: user.email || "", name: user.user_metadata?.full_name || user.email || "" });
+          // Supabaseからキャラクター・プロフィール同期
+          syncFromSupabase(user);
+        }
       }).catch(() => {});
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) setAuthUser({ email: session.user.email || "", name: session.user.user_metadata?.full_name || session.user.email || "" });
-        else setAuthUser(null);
+        if (session?.user) {
+          setAuthUser({ email: session.user.email || "", name: session.user.user_metadata?.full_name || session.user.email || "" });
+        } else {
+          setAuthUser(null);
+        }
       });
       subscription = data.subscription;
     } catch { /* Supabase初期化失敗時はログインなしで動作 */ }
@@ -1162,7 +1227,6 @@ export default function App() {
     fetch("/api/trial").then(r => r.json()).then(d => {
       if (d.available) {
         setTrialAvailable(true);
-        // サーバーキーが使える場合、ユーザーキーなしでもプロアクティブ提案を取得
         try {
           const p = loadProfile();
           const c = loadChar();
@@ -1189,7 +1253,6 @@ export default function App() {
       const topicParam = params.get("topic");
       if (topicParam) {
         setInputText(topicParam);
-        // URLからパラメータを消す（履歴を汚さない）
         window.history.replaceState({}, "", window.location.pathname);
       }
     } catch { /* ignore */ }
@@ -1223,7 +1286,7 @@ export default function App() {
         }),
       });
       const d = await res.json();
-      if (d.character) { setChar(d.character); saveChar(d.character); }
+      if (d.character) { setChar(d.character); saveChar(d.character); syncCharToSupabase(d.character); }
     } catch { /* 進化失敗は無視 */ }
     finally { setCharEvolving(false); }
   }
@@ -2352,7 +2415,7 @@ export default function App() {
               <span style={{ fontSize: 11, color: "#6B7280", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
                 {authUser.name}
               </span>
-              <button onClick={() => { window.location.href = "/api/auth/logout"; }}
+              <button onClick={handleLogout}
                 style={{
                   padding: "7px 14px", background: "transparent", border: "1.5px solid #E5E7EB",
                   borderRadius: 10, cursor: "pointer", fontSize: 12, color: "#6B7280", fontWeight: 600,
@@ -2396,10 +2459,10 @@ export default function App() {
                   border: "1.5px solid #1A6B7218",
                 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, color: "#0A2342", marginBottom: "0.3rem" }}>
-                    ようこそ、{authUser.name?.split("@")[0]}さん！
+                    {cn}が待ってるよ！ ようこそ、{authUser.name?.split("@")[0]}さん
                   </div>
                   <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.6, marginBottom: "0.5rem" }}>
-                    APIキーなしですぐに使えます。下の教材入力にテーマを入れて、AIに教えてみましょう。
+                    すぐに始められます！下のテーマ入力に教えたいことを入れて、{cn}に教えてみましょう。
                   </div>
                   <div style={{
                     display: "inline-flex", alignItems: "center", gap: 6,
@@ -2444,8 +2507,8 @@ export default function App() {
                     </div>
                     <div style={{ fontSize: 11, color: "#999", lineHeight: 1.3, marginBottom: "0.4rem" }}>
                       {profile.length === 0
-                        ? `${char.custom_name || char.name}に何か教えてみよう！`
-                        : `${profile.length}回教えてくれたね！`
+                        ? `「何か教えてほしいな〜！」`
+                        : `「${profile.length}回も教えてもらっちゃった！」`
                       }
                     </div>
                     <StageBar char={char} n={profile.length} />
@@ -2499,7 +2562,7 @@ export default function App() {
                         <>
                           <textarea value={inputText}
                             onChange={e => { const v = e.target.value; if (v.length <= TEXT_INPUT_LIMIT) { setInputText(v); setFileContent(""); } }}
-                            placeholder="AIに教えたい内容を自由に書いてください。例: 光合成の仕組み、量子コンピュータとは、三角関数の公式..."
+                            placeholder={`${cn}に教えたい内容を入力してね！ 例: 光合成の仕組み、量子コンピュータとは…`}
                             rows={4} className="input-base" style={{ resize: "vertical", marginBottom: 0 }} />
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                             <span style={{ fontSize: 10, color: inputText.length > AUTO_SPLIT_THRESHOLD ? "#F5A623" : "#ccc" }}>
@@ -2717,6 +2780,101 @@ export default function App() {
                   style={{ background: "none", border: "none", fontSize: 12, color: "#bbb", cursor: "pointer", marginTop: "0.75rem", fontFamily: "inherit" }}>
                   スキップ
                 </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* キャラクター作成モーダル（初回ログイン時） */}
+      {showCharCreation && (() => {
+        const presets = [
+          { id: "mio", name: "ミオ", emoji: "👧", color: "#FF6B9D", personality: "元気で好奇心旺盛", speaking_style: "タメ口で親しみやすい。語尾に「！」「〜」が多い", intro: "はじめまして！ミオだよ〜！たくさん教えてね！" },
+          { id: "sora", name: "ソラ", emoji: "👦", color: "#3A8BD2", personality: "冷静で知的。論理的に理解したい", speaking_style: "丁寧語だが堅すぎない。「なるほど」「つまり」が多い", intro: "こんにちは、ソラです。しっかり教えてくださいね。" },
+          { id: "haru", name: "ハル", emoji: "🧒", color: "#2EAD9A", personality: "のんびりマイペース。独自の視点を持つ", speaking_style: "ゆったりとした口調。「へぇ〜」「ふーん」が特徴", intro: "やぁ、ハルだよ〜。ゆっくり教えてね。" },
+          { id: "rin", name: "リン", emoji: "👩", color: "#7B3FA0", personality: "真面目で向上心が強い。完璧主義", speaking_style: "です・ます調だが感情豊か。「すごい！」「完璧！」が多い", intro: "リンです！一生懸命覚えるので教えてください！" },
+        ];
+        const selectedPreset = presets.find(p => p.id === charCreationPreset) || presets[0];
+        return (
+          <div className="overlay" onClick={() => {}}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, textAlign: "center" }}>
+              {charCreationStep === 0 ? (
+                <>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: "#0A2342", marginBottom: 4 }}>パートナーを選ぼう</div>
+                  <p style={{ fontSize: 13, color: "#999", marginBottom: "1.25rem" }}>あなたに教わるAIキャラクターを選んでください</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1.25rem" }}>
+                    {presets.map(p => (
+                      <button key={p.id} onClick={() => setCharCreationPreset(p.id)}
+                        style={{
+                          padding: "1rem 0.75rem", borderRadius: 16, border: `2px solid ${charCreationPreset === p.id ? p.color : "#eee"}`,
+                          background: charCreationPreset === p.id ? `${p.color}08` : "#fafafa",
+                          cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.2s",
+                        }}>
+                        <Avatar char={{ ...p, praise: "", struggle: "", confused: "", lore: "", interests: [], knowledge_areas: [], growth_stages: [], evolution_log: [] } as Character} size={56} />
+                        <div style={{ fontSize: 15, fontWeight: 800, color: "#222", marginTop: 8 }}>{p.name}</div>
+                        <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{p.personality}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <button className="btn-primary" onClick={() => {
+                    setCharCreationCustomName(selectedPreset.name);
+                    setCharCreationCustomPersonality(selectedPreset.personality);
+                    setCharCreationStep(1);
+                  }} style={{ marginTop: 0, background: selectedPreset.color }}>
+                    {selectedPreset.name}を選ぶ
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: "0.75rem" }}>
+                    <Avatar char={{ ...selectedPreset, praise: "", struggle: "", confused: "", lore: "", interests: [], knowledge_areas: [], growth_stages: [], evolution_log: [] } as Character} size={72} />
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: "#0A2342", marginBottom: 4 }}>カスタマイズ</div>
+                  <p style={{ fontSize: 12, color: "#999", marginBottom: "1rem" }}>名前や性格を自由に変更できます（後からも変更可能）</p>
+                  <div style={{ textAlign: "left", marginBottom: "0.75rem" }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>名前</label>
+                    <input value={charCreationCustomName} onChange={e => setCharCreationCustomName(e.target.value)}
+                      className="input-base" maxLength={10} placeholder="好きな名前を入力" />
+                  </div>
+                  <div style={{ textAlign: "left", marginBottom: "1rem" }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4, display: "block" }}>性格メモ</label>
+                    <textarea value={charCreationCustomPersonality} onChange={e => setCharCreationCustomPersonality(e.target.value)}
+                      className="input-base" rows={2} maxLength={100} placeholder="キャラクターの性格" style={{ resize: "none" }} />
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button className="btn-primary" onClick={() => setCharCreationStep(0)}
+                      style={{ flex: 0, marginTop: 0, background: "#f5f5f5", color: "#555", padding: "0.875rem 1rem" }}>戻る</button>
+                    <button className="btn-primary" onClick={() => {
+                      const newChar: Character = {
+                        id: selectedPreset.id,
+                        name: charCreationCustomName.trim() || selectedPreset.name,
+                        emoji: selectedPreset.emoji,
+                        color: selectedPreset.color,
+                        personality: charCreationCustomPersonality.trim() || selectedPreset.personality,
+                        speaking_style: selectedPreset.speaking_style,
+                        praise: `「${charCreationCustomName.trim() || selectedPreset.name}は嬉しそうに」すごい！わかった！もっと教えて！`,
+                        struggle: `「${charCreationCustomName.trim() || selectedPreset.name}は困った顔で」うーん、もう一回教えてくれる？`,
+                        confused: `「${charCreationCustomName.trim() || selectedPreset.name}は首をかしげて」そこがよくわからないんだけど…`,
+                        intro: selectedPreset.intro,
+                        lore: `${charCreationCustomName.trim() || selectedPreset.name}は教えてもらうのが大好き。一緒に成長していく。`,
+                        interests: [], knowledge_areas: [],
+                        growth_stages: [
+                          { label: "出会ったばかり", threshold: 0 }, { label: "なかよし", threshold: 3 },
+                          { label: "信頼の絆", threshold: 8 }, { label: "ずっと一緒", threshold: 15 },
+                          { label: "かけがえのない存在", threshold: 30 },
+                        ],
+                        evolution_log: [],
+                      };
+                      setChar(newChar);
+                      saveChar(newChar);
+                      syncCharToSupabase(newChar);
+                      setShowCharCreation(false);
+                      setCharCreationStep(0);
+                    }} style={{ flex: 1, marginTop: 0, background: selectedPreset.color }}>
+                      {charCreationCustomName.trim() || selectedPreset.name}と始める！
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>

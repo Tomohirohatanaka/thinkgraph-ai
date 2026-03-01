@@ -38,27 +38,35 @@ export async function POST(req: NextRequest) {
     const avgScore = Math.round(profile.reduce((s, e) => s + e.score, 0) / profile.length);
     const totalSessions = profile.length;
 
-    const skillPrompt = `あなたはAIキャラクター「${charName}」${charEmoji}（性格: ${charPersonality}）です。
-ユーザーに様々な知識を教えてもらいました。
-その学習履歴をもとに、${charName}が「どれだけ知識を身につけたか」のスキルマップを生成してください。
+    const charStyle = character?.personality || "好奇心旺盛";
+
+    const skillPrompt = `あなたはAIキャラクター「${charName}」${charEmoji}（性格: ${charStyle}）です。
+ユーザー（先生）に様々な知識を教えてもらいました。
+学習履歴をもとに、${charName}が「どれだけ知識を身につけたか」のスキルマップを${charName}の性格・口調で生成してください。
+
+## 重要ルール
+- カテゴリ名・スキル名・要約すべてを${charName}の口調・語尾で表現すること
+- 例: 元気な性格なら「めっちゃわかった！光合成マスター！」、冷静なら「光合成の基礎理論は概ね理解しました」
+- skill_levelの名前もキャラに合わせる（例: "見習い" → "${charName}流の表現"）
 
 ## ${charName}が教えてもらった学習履歴（計${totalSessions}セッション、平均スコア${avgScore}点）
 ${profileSummary}
 
 ## 出力形式（JSONのみ・前置き不要）
 {
-  "char_name": "キャラ名",
-  "char_emoji": "絵文字",
-  "skill_level": "見習い|成長中|一人前|熟達",
-  "summary": "キャラの口調で知識の状態を2〜3文で",
+  "char_name": "${charName}",
+  "char_emoji": "${charEmoji}",
+  "skill_level": "${charName}の口調で今の実力を4文字以内で（例:もっと知りたい！/かなり詳しい/まだまだ…）",
+  "summary": "${charName}の口調で知識の状態を2〜3文で（先生への感謝や次に教えてほしいことを含める）",
   "categories": [
     {
-      "name": "知識カテゴリ名",
+      "name": "${charName}の口調でカテゴリ名（例:『ちょっと得意かも？理科系』）",
       "color": "#hex",
       "icon": "絵文字1文字",
-      "skills": [{ "name": "概念名", "level": 85, "sessions": 3 }]
+      "skills": [{ "name": "概念名（キャラ口調OK）", "level": 85, "sessions": 3 }]
     }
-  ]
+  ],
+  "next_request": "${charName}の口調で次に教えてほしいテーマのお願い（1文）"
 }`;
 
     const llmRes = await callLLM({
