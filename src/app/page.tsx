@@ -694,6 +694,7 @@ export default function App() {
   const [fileContent, setFileContent] = useState("");
   const [fileData, setFileData] = useState<{ name: string; base64: string; mimeType: string } | null>(null);
   const [fileInfo, setFileInfo] = useState<{ name: string; size: number } | null>(null);
+  const [activeInputTab, setActiveInputTab] = useState<"text" | "url" | "file">("text");
 
   const [skillMap, setSkillMap] = useState<SkillMap | null>(null);
   const [skillLoading, setSkillLoading] = useState(false);
@@ -808,6 +809,27 @@ export default function App() {
     fetch("/api/trial").then(r => r.json()).then(d => {
       if (d.available) setTrialAvailable(true);
     }).catch(() => {});
+
+    // プロアクティブ提案の取得（初回ロード時、プロフィールがある場合）
+    try {
+      const p = loadProfile();
+      const c = loadChar();
+      const k = localStorage.getItem("tg_apikey") || "";
+      if (k && c && p.length > 0) {
+        fetchProactive(p, c);
+      }
+    } catch { /* ignore */ }
+
+    // ?topic= パラメータからトピックを復元
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const topicParam = params.get("topic");
+      if (topicParam) {
+        setInputText(topicParam);
+        // URLからパラメータを消す（履歴を汚さない）
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch { /* ignore */ }
 
     return () => { subscription?.unsubscribe(); };
   }, []);
@@ -1220,6 +1242,7 @@ export default function App() {
     }
     setFileInfo({ name: f.name, size: f.size });
     setInputUrl(""); setInputText("");
+    setActiveInputTab("file");
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1645,6 +1668,7 @@ export default function App() {
               <button className="btn-primary" onClick={() => {
                 setScreen("home"); setTopic(null);
                 setInputUrl(""); setInputText(""); setFileContent(""); setFileData(null); setFileInfo(null);
+                setActiveInputTab("text");
               }} style={{ flex: 1, background: "#f5f5f5", color: "#555", marginTop: 0 }}>別トピックへ</button>
             </div>
 
@@ -1738,7 +1762,13 @@ export default function App() {
               <a href="/dashboard" style={{ padding: "5px 12px", background: "#0A2342", color: "white", borderRadius: 8, textDecoration: "none", fontSize: 12, fontWeight: 700 }}>
                 📊 ダッシュボード
               </a>
-              <button onClick={async () => { const sb = createClient(); await sb.auth.signOut(); setAuthUser(null); }}
+              <button onClick={async () => {
+                  const sb = createClient();
+                  await sb.auth.signOut();
+                  setAuthUser(null);
+                  // Cookieクリア後ページリロードで完全にセッションを破棄
+                  window.location.href = "/";
+                }}
                 style={{ padding: "5px 12px", background: "transparent", border: "1px solid #ddd", borderRadius: 8, cursor: "pointer", fontSize: 12, color: "#666" }}>
                 ログアウト
               </button>
@@ -1800,20 +1830,19 @@ export default function App() {
               <div className="card" style={{ marginBottom: "1rem" }}>
                 {/* 入力モードタブ */}
                 {(() => {
-                  const inputMode = inputUrl.trim() ? "url"
-                    : (fileContent || fileData) ? "file"
-                    : "text";
+                  const inputMode = activeInputTab;
                   const tabs = [
-                    { id: "text", icon: "✏️", label: "テキスト" },
-                    { id: "url",  icon: "🔗", label: "URL" },
-                    { id: "file", icon: "📎", label: "ファイル" },
-                  ] as const;
+                    { id: "text" as const, icon: "✏️", label: "テキスト" },
+                    { id: "url" as const,  icon: "🔗", label: "URL" },
+                    { id: "file" as const, icon: "📎", label: "ファイル" },
+                  ];
                   return (
                     <>
                       <div style={{ display: "flex", gap: "0.3rem", marginBottom: "0.75rem" }}>
                         {tabs.map(t => (
                           <button key={t.id}
                             onClick={() => {
+                              setActiveInputTab(t.id);
                               if (t.id === "url") { setInputText(""); setFileContent(""); setFileData(null); setFileInfo(null); }
                               if (t.id === "text") { setInputUrl(""); setFileContent(""); setFileData(null); setFileInfo(null); }
                               if (t.id === "file") { setInputUrl(""); setInputText(""); fileRef.current?.click(); }
@@ -1830,8 +1859,8 @@ export default function App() {
                         ))}
                       </div>
 
-                      {/* テキスト入力（デフォルト表示） */}
-                      {inputMode === "text" && !inputUrl.trim() && !(fileContent || fileData) && (
+                      {/* テキスト入力 */}
+                      {inputMode === "text" && (
                         <textarea value={inputText}
                           onChange={e => { setInputText(e.target.value); setFileContent(""); }}
                           placeholder="AIに教えたい内容を自由に書いてください。例: 光合成の仕組み、量子コンピュータとは、三角関数の公式..."
@@ -1839,30 +1868,39 @@ export default function App() {
                       )}
 
                       {/* URL入力 */}
-                      {inputMode === "url" && !(fileContent || fileData) && (
-                        <input value={inputUrl}
-                          onChange={e => { setInputUrl(e.target.value); setFileContent(""); setFileData(null); setFileInfo(null); setInputText(""); }}
-                          placeholder="YouTube URL / WebサイトURL / ブログ記事URL..."
-                          className="input-base"
-                          style={{ marginBottom: "0.5rem" }}
-                          onKeyDown={e => e.key === "Enter" && handleStart()} />
+                      {inputMode === "url" && (
+                        <>
+                          <input value={inputUrl}
+                            onChange={e => { setInputUrl(e.target.value); setFileContent(""); setFileData(null); setFileInfo(null); setInputText(""); }}
+                            placeholder="YouTube URL / WebサイトURL / ブログ記事URL..."
+                            className="input-base"
+                            style={{ marginBottom: "0.5rem" }}
+                            onKeyDown={e => e.key === "Enter" && handleStart()} />
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: "0.2rem" }}>
+                            {["YouTube", "Web", "note", "Qiita", "Zenn", "Wikipedia"].map(f => (
+                              <span key={f} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 100, background: "#f5f5f5", color: "#aaa" }}>{f}</span>
+                            ))}
+                          </div>
+                        </>
                       )}
 
                       {/* ファイル添付 */}
                       <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.jpg,.jpeg,.png,.gif,.webp" onChange={handleFile} style={{ display: "none" }} />
+                      {inputMode === "file" && !(fileContent || fileData) && (
+                        <button onClick={() => fileRef.current?.click()}
+                          style={{
+                            width: "100%", padding: "1.5rem 1rem", borderRadius: 12,
+                            border: "2px dashed #ddd", background: "#fafafa",
+                            cursor: "pointer", textAlign: "center", fontFamily: "inherit",
+                            color: "#999", fontSize: 13,
+                          }}>
+                          📎 ファイルを選択（PDF, DOCX, XLSX, PPTX, 画像...）
+                        </button>
+                      )}
                       {(fileContent || fileData) && fileInfo && (
                         <div style={{ fontSize: 12, color: "#4ECDC4", padding: "0.5rem 0.75rem", background: "#f0fffe", borderRadius: 10, marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span>✓ {fileInfo.name}（{(fileInfo.size / 1024).toFixed(1)} KB）</span>
-                          <button onClick={() => { setFileContent(""); setFileData(null); setFileInfo(null); }} style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: 14, padding: 0 }}>×</button>
-                        </div>
-                      )}
-
-                      {/* 対応フォーマット */}
-                      {inputMode === "url" && (
-                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: "0.4rem" }}>
-                          {["YouTube", "Web", "note", "Qiita", "Zenn", "PDF", "DOCX", "XLSX", "PPTX", "TXT", "JPG", "PNG"].map(f => (
-                            <span key={f} style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 100, background: "#f5f5f5", color: "#aaa" }}>{f}</span>
-                          ))}
+                          <button onClick={() => { setFileContent(""); setFileData(null); setFileInfo(null); setActiveInputTab("text"); }} style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: 14, padding: 0 }}>×</button>
                         </div>
                       )}
                     </>
@@ -1882,7 +1920,26 @@ export default function App() {
                 {apiKey ? `🔑 ${detectProviderLabel(apiKey).label}` : trialAvailable ? "🎁 お試しモードで利用中（APIキー設定で制限解除）" : "⚠️ AIのAPIキーを設定してください"}
               </button>
 
-{/* proactive suggestion removed — users now enter content directly */}
+              {/* プロアクティブ提案 */}
+              {proactive && proactive.suggestions?.length > 0 && (
+                <div className="card" style={{ marginBottom: "1rem", background: `${cc}04`, borderColor: `${cc}18` }}>
+                  <div style={{ fontSize: 12, color: cc, fontWeight: 700, marginBottom: "0.5rem" }}>
+                    {char?.emoji ?? "💡"} {proactive.message?.slice(0, 60) || "次に教えてみませんか？"}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                    {proactive.suggestions.slice(0, 3).map((s, i) => (
+                      <button key={i} onClick={() => { setInputText(s.topic); setActiveInputTab("text"); }}
+                        style={{
+                          padding: "0.3rem 0.7rem", borderRadius: 20, border: `1px solid ${cc}25`,
+                          background: "#fff", color: "#555", fontSize: 12, cursor: "pointer",
+                          fontFamily: "inherit", display: "flex", alignItems: "center", gap: "0.3rem",
+                        }}>
+                        <span>{s.emoji}</span> {s.topic}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 履歴 */}
               {profile.length > 0 && (

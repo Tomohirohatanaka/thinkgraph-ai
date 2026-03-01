@@ -67,8 +67,9 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/auth/login");
-    router.refresh();
+    // router.push + refresh ではSSRのcookieが残り続けるため、
+    // window.location で完全リロードしてcookieをクリアする
+    window.location.href = "/auth/login";
   };
 
   const saveApiKey = () => {
@@ -117,17 +118,30 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
   return (
     <div style={{ minHeight: "100vh", background: "#F8FAFC", fontFamily: "'Outfit', -apple-system, BlinkMacSystemFont, sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+      <style>{`
+        .dash-kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px; }
+        @media (min-width: 768px) { .dash-kpi-grid { grid-template-columns: repeat(4, 1fr); gap: 16px; } }
+        .dash-content-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media (min-width: 768px) { .dash-content-grid { grid-template-columns: 1fr 1fr; } }
+        .dash-kg-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media (min-width: 768px) { .dash-kg-grid { grid-template-columns: 2fr 1fr; } }
+        .dash-settings-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media (min-width: 768px) { .dash-settings-grid { grid-template-columns: 1fr 1fr; } }
+        .dash-header-actions { display: flex; align-items: center; gap: 8px; }
+        .dash-header-name { font-size: 13px; color: #90B8C8; display: none; }
+        @media (min-width: 640px) { .dash-header-name { display: inline; } }
+      `}</style>
 
       {/* HEADER */}
-      <header style={{ background: BRAND.primary, color: "white", padding: "0 28px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
+      <header style={{ background: BRAND.primary, color: "white", padding: "0 16px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.5px" }}>
             teach<span style={{ color: BRAND.accent }}>AI</span>
           </div>
           <span style={{ fontSize: 12, color: "#90B8C8", fontWeight: 500 }}>ダッシュボード</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 13, color: "#90B8C8" }}>{user.name || user.email}</span>
+        <div className="dash-header-actions">
+          <span className="dash-header-name">{user.name || user.email}</span>
           <button onClick={() => router.push("/")} style={{ padding: "6px 16px", background: BRAND.accent, color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
             AIに教える
           </button>
@@ -137,7 +151,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
         </div>
       </header>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 16px" }}>
         {/* Greeting */}
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: BRAND.primary }}>
@@ -149,7 +163,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
         </div>
 
         {/* KPI cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+        <div className="dash-kpi-grid">
           {[
             { label: "教えたセッション", value: totalSessions, sub: "完了セッション数", color: BRAND.teal, icon: "📚" },
             { label: "平均スコア", value: avgScore ? `${avgScore}pt` : "—", sub: `総合評価 ${scoreGrade}`, color: BRAND.primary, icon: "🏆" },
@@ -182,7 +196,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          <div className="dash-content-grid">
             <div style={{ background: "white", borderRadius: 14, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
               <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 16, fontSize: 15 }}>📈 最近のスコア推移</div>
               {recent.length > 0 ? (
@@ -299,7 +313,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
         {/* ── KNOWLEDGE GRAPH ── */}
         {tab === "knowledge" && (
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20 }}>
+          <div className="dash-kg-grid">
             <div style={{ background: "white", borderRadius: 14, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
               <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 8, fontSize: 15 }}>🧠 教えた知識マップ</div>
               <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 16 }}>セッションから自動抽出された概念ネットワーク</div>
@@ -346,7 +360,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
         {/* ── SETTINGS ── */}
         {tab === "settings" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          <div className="dash-settings-grid">
             {/* API Key */}
             <div style={{ background: "white", borderRadius: 14, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
               <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 16, fontSize: 15 }}>🔑 AI APIキー設定</div>
