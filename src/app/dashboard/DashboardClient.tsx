@@ -141,19 +141,19 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
       `}</style>
 
       {/* HEADER */}
-      <header style={{ background: BRAND.primary, color: "white", padding: "0 16px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
+      <header style={{ background: BRAND.primary, color: "white", padding: "0 20px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.5px" }}>
+          <a href="/landing" style={{ textDecoration: "none", fontSize: 18, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
             teach<span style={{ color: BRAND.accent }}>AI</span>
-          </div>
-          <span style={{ fontSize: 12, color: "#90B8C8", fontWeight: 500 }}>ダッシュボード</span>
+          </a>
+          <span style={{ fontSize: 12, color: "#90B8C8", fontWeight: 500, padding: "2px 8px", background: "rgba(255,255,255,0.08)", borderRadius: 6 }}>ダッシュボード</span>
         </div>
         <div className="dash-header-actions">
           <span className="dash-header-name">{user.name || user.email}</span>
-          <button onClick={() => router.push("/")} style={{ padding: "6px 16px", background: BRAND.accent, color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+          <button onClick={() => router.push("/")} style={{ padding: "7px 18px", background: BRAND.accent, color: "white", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
             AIに教える
           </button>
-          <button onClick={handleLogout} style={{ padding: "6px 14px", background: "transparent", color: "#90B8C8", border: "1px solid #1A3A5C", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>
+          <button onClick={handleLogout} style={{ padding: "7px 16px", background: "transparent", color: "#90B8C8", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
             ログアウト
           </button>
         </div>
