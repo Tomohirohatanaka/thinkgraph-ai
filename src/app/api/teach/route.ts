@@ -24,6 +24,8 @@ import {
 } from "@/lib/scoring-v3";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { resolveApiKey } from "@/lib/trial-key";
+import { detectPromptInjection, sanitizeUserInput } from "@/lib/ai/prompt-engine";
+import { validate, SCHEMAS } from "@/lib/security/input-validator";
 
 const USE_V3 = process.env.USE_V3_SCORING === "true";
 
@@ -58,6 +60,16 @@ function detectLeading(aiText: string, userText: string): number {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // ─── Input Validation ────────────────────────────────────
+    const validation = validate(body, SCHEMAS.teach);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.errors[0]?.message || "入力が不正です", code: "VALIDATION_ERROR" },
+        { status: 400 }
+      );
+    }
+
     const {
       apiKey, topic, coreText, mode,
       history = [], userMessage, forceFinish = false,
@@ -85,6 +97,14 @@ export async function POST(req: NextRequest) {
     }
     const effectiveKey = resolved.key;
     const provider = detectProvider(effectiveKey);
+
+    // ─── Prompt Injection Defense ──────────────────────────
+    const sanitizedMessage = sanitizeUserInput(userMessage);
+    const injectionDetected = detectPromptInjection(sanitizedMessage);
+    // Log but don't block — let the prompt defense in system message handle it
+    if (injectionDetected) {
+      console.warn("[teach] Potential prompt injection detected", { topic, turn: history.length });
+    }
 
     const prevUserTurns = history.filter(t => t.role === "user").length;
     const totalUserTurns = prevUserTurns + 1;
