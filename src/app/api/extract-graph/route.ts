@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CORS_HEADERS, corsResponse } from "@/lib/api";
 import { callLLM, detectProvider } from "@/lib/llm";
+import { resolveApiKey } from "@/lib/trial-key";
 
 function extractJson(text: string) {
   const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -12,8 +13,10 @@ function extractJson(text: string) {
 export async function POST(req: NextRequest) {
   const { conversation, domain, apiKey } = await req.json();
 
-  if (!apiKey?.length) return NextResponse.json({ error: 'API key required' }, { status: 400 });
-  const provider = detectProvider(apiKey);
+  const resolved = resolveApiKey(apiKey);
+  if (!resolved) return NextResponse.json({ error: 'API key required' }, { status: 400 });
+  const effectiveKey = resolved.key;
+  const provider = detectProvider(effectiveKey);
   const convText = conversation
     .map((m: { role: string; content: string }) => `${m.role}: ${m.content}`)
     .join('\n');
@@ -46,7 +49,7 @@ JSONのみ出力。前置きなし。`;
 
   const llmRes = await callLLM({
       provider,
-      apiKey,
+      apiKey: effectiveKey,
       messages: [{ role: 'user', content: prompt }],
       maxTokens: 1500,
     });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { resolveApiKey } from "@/lib/trial-key";
 
 interface Character {
   name: string; emoji: string; color: string;
@@ -16,13 +17,15 @@ export async function POST(req: NextRequest) {
       character?: Character;
     };
 
-    if (!apiKey?.length) {
+    const resolved = resolveApiKey(apiKey);
+    if (!resolved) {
       return NextResponse.json({ error: "APIキーが必要です" }, { status: 400 });
     }
     if (!profile?.length) {
       return NextResponse.json({ error: "学習履歴がありません" }, { status: 400 });
     }
-    const provider = detectProvider(apiKey);
+    const effectiveKey = resolved.key;
+    const provider = detectProvider(effectiveKey);
 
     const charName = character?.name ?? "キャラクター";
     const charEmoji = character?.emoji ?? "🤖";
@@ -59,7 +62,7 @@ ${profileSummary}
 }`;
 
     const llmRes = await callLLM({
-      provider, apiKey,
+      provider, apiKey: effectiveKey,
       messages: [{ role: "user", content: skillPrompt }],
       maxTokens: 1500,
     });
