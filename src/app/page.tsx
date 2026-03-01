@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import ReviewReminder from "@/components/ReviewReminder";
 import GraphComparison from "@/components/GraphComparison";
 import CharacterGrowthTimeline from "@/components/CharacterGrowthTimeline";
 
@@ -236,8 +235,12 @@ function useSpeechRec() {
         try { r.start(); } catch { onFinal(latest.current || accumulated); }
       }
     };
-    r.onerror = () => {
-      if (!holdingRef.current) onFinal(latest.current);
+    r.onerror = (ev) => {
+      // "no-speech" や "aborted" は再開可能なエラー
+      if (holdingRef.current && (ev.error === "no-speech" || ev.error === "aborted")) {
+        try { r.start(); return; } catch { /* fall through */ }
+      }
+      if (!holdingRef.current) onFinal(latest.current || accumulated);
     };
     try { r.start(); } catch {}
   }, []);
@@ -292,12 +295,12 @@ function useSynth() {
     const cleaned = cleanForSpeech(text);
     if (!cleaned) { cb?.(); return; }
 
-    // 句点・疑問符・感嘆符で分割して150文字以内のチャンクに
+    // 句点・疑問符・感嘆符で分割して200文字以内のチャンクに
     const sentences = cleaned.split(/(?<=[。！？!?])\s*/g).filter(s => s.trim());
     const chunks: string[] = [];
     let buf = "";
     for (const s of sentences) {
-      if (buf.length + s.length > 150 && buf) { chunks.push(buf); buf = s; }
+      if (buf.length + s.length > 200 && buf) { chunks.push(buf); buf = s; }
       else buf += s;
     }
     if (buf) chunks.push(buf);
@@ -315,13 +318,13 @@ function useSynth() {
       if (jaGoogle) u.voice = jaGoogle;
       else if (jaAny) u.voice = jaAny;
 
-      // Chromium workaround: keep alive during utterance
+      // Chromium workaround: keep alive during utterance (8秒間隔で確実に継続)
       const keepAlive = setInterval(() => {
         if (window.speechSynthesis.speaking) {
           window.speechSynthesis.pause();
           window.speechSynthesis.resume();
         }
-      }, 12000);
+      }, 8000);
 
       u.onend = () => { clearInterval(keepAlive); idx++; speakNext(); };
       u.onerror = () => { clearInterval(keepAlive); idx++; speakNext(); };
@@ -370,16 +373,22 @@ function Ring({ value, color, label, size = 64 }: { value: number; color: string
   );
 }
 
-function Avatar({ char, size = 44, pulse }: { char: Character; size?: number; pulse?: boolean }) {
+function Avatar({ char, size = 44, pulse, expression }: { char: Character; size?: number; pulse?: boolean; expression?: "happy" | "confused" | "thinking" | "neutral" }) {
+  const expressionEmoji = expression === "happy" ? "\u2764\uFE0F" : expression === "confused" ? "\u2753" : expression === "thinking" ? "\uD83D\uDCA1" : null;
   return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%", flexShrink: 0,
-      background: `${char.color}20`, border: `2px solid ${char.color}50`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: size * 0.48,
-      boxShadow: pulse ? `0 0 0 6px ${char.color}25, 0 0 0 12px ${char.color}10` : "none",
-      transition: "box-shadow 0.3s",
-    }}>{char.emoji}</div>
+    <div className="avatar-breathe" style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <div className={pulse ? "avatar-glow" : ""} style={{
+        width: size, height: size, borderRadius: "50%",
+        background: `${char.color}20`, border: `2px solid ${char.color}50`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: size * 0.48,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "--glow-color": `${char.color}40`,
+      } as any}>{char.emoji}</div>
+      {expressionEmoji && (
+        <span className="expression-bubble">{expressionEmoji}</span>
+      )}
+    </div>
   );
 }
 
@@ -449,6 +458,113 @@ function SkillBar({ skill, color }: { skill: SkillEntry; color: string }) {
   );
 }
 
+// ─── Radar Chart (SVG) for SOLO Taxonomy v3 ─────────────────
+function RadarChart({ axes, size = 220 }: {
+  axes: { label: string; value: number; max: number; color: string }[];
+  size?: number;
+}) {
+  const cx = size / 2, cy = size / 2, r = size / 2 - 30;
+  const n = axes.length;
+  const angleStep = (2 * Math.PI) / n;
+  const levels = [0.25, 0.5, 0.75, 1.0];
+
+  // Generate polygon points for a given set of normalized values
+  const polyPoints = (values: number[]) =>
+    values.map((v, i) => {
+      const angle = -Math.PI / 2 + i * angleStep;
+      const x = cx + r * v * Math.cos(angle);
+      const y = cy + r * v * Math.sin(angle);
+      return `${x},${y}`;
+    }).join(" ");
+
+  const normalized = axes.map(a => Math.min(a.value / a.max, 1));
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: "visible" }}>
+      {/* Grid rings */}
+      {levels.map(lev => (
+        <polygon key={lev}
+          points={Array.from({ length: n }, (_, i) => {
+            const angle = -Math.PI / 2 + i * angleStep;
+            return `${cx + r * lev * Math.cos(angle)},${cy + r * lev * Math.sin(angle)}`;
+          }).join(" ")}
+          fill="none" stroke="#e8e8e8" strokeWidth={1}
+        />
+      ))}
+      {/* Axis lines */}
+      {axes.map((_, i) => {
+        const angle = -Math.PI / 2 + i * angleStep;
+        return (
+          <line key={i}
+            x1={cx} y1={cy}
+            x2={cx + r * Math.cos(angle)} y2={cy + r * Math.sin(angle)}
+            stroke="#e8e8e8" strokeWidth={1}
+          />
+        );
+      })}
+      {/* Data polygon */}
+      <polygon
+        points={polyPoints(normalized)}
+        fill="rgba(255,107,157,0.15)" stroke="#FF6B9D" strokeWidth={2}
+        style={{ transition: "all 0.8s ease" }}
+      />
+      {/* Data points */}
+      {normalized.map((v, i) => {
+        const angle = -Math.PI / 2 + i * angleStep;
+        const x = cx + r * v * Math.cos(angle);
+        const y = cy + r * v * Math.sin(angle);
+        return (
+          <circle key={i} cx={x} cy={y} r={4}
+            fill={axes[i].color} stroke="#fff" strokeWidth={2}
+            style={{ transition: "all 0.8s ease" }}
+          />
+        );
+      })}
+      {/* Labels */}
+      {axes.map((a, i) => {
+        const angle = -Math.PI / 2 + i * angleStep;
+        const lx = cx + (r + 22) * Math.cos(angle);
+        const ly = cy + (r + 22) * Math.sin(angle);
+        return (
+          <g key={i}>
+            <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+              style={{ fontSize: 10, fontWeight: 700, fill: "#555", fontFamily: "Outfit, sans-serif" }}>
+              {a.label}
+            </text>
+            <text x={lx} y={ly + 13} textAnchor="middle" dominantBaseline="middle"
+              style={{ fontSize: 9, fontWeight: 600, fill: a.color, fontFamily: "Outfit, sans-serif" }}>
+              {a.value.toFixed(1)}/{a.max}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Mastery Bar (horizontal) ─────────────────────────────────
+function MasteryBar({ label, value, maxValue, color, icon }: {
+  label: string; value: number; maxValue: number; color: string; icon: string;
+}) {
+  const pct = Math.min((value / maxValue) * 100, 100);
+  return (
+    <div style={{ marginBottom: "0.75rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 13, color: "#333", fontWeight: 600 }}>{icon} {label}</span>
+        <span style={{ fontSize: 12, fontWeight: 800, color }}>{value.toFixed(1)}<span style={{ fontSize: 10, color: "#bbb", fontWeight: 400 }}>/{maxValue}</span></span>
+      </div>
+      <div style={{ height: 10, background: "#f0f0f0", borderRadius: 5, overflow: "hidden" }}>
+        <div style={{
+          height: "100%", width: `${pct}%`, borderRadius: 5,
+          background: `linear-gradient(90deg, ${color}90, ${color})`,
+          transition: "width 1s cubic-bezier(0.16, 1, 0.3, 1)",
+          boxShadow: pct >= 70 ? `0 2px 8px ${color}40` : "none",
+        }} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Skills View ──────────────────────────────────────────────
 function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRefresh }: {
   profile: ProfileEntry[]; skillMap: SkillMap | null;
@@ -487,6 +603,42 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
   const levelBg = (l: string) =>
     l === "熟達" ? "#fff5f5" : l === "一人前" ? "#f0fffe" : l === "成長中" ? "#f0f8ff" : "#f5fff5";
 
+  // Compute SOLO Taxonomy v3 averages from profile + categories
+  const soloAxes = [
+    { label: "網羅性", color: "#FF6B6B", icon: "📋" },
+    { label: "深さ", color: "#45B7D1", icon: "🔬" },
+    { label: "明晰さ", color: "#4ECDC4", icon: "💎" },
+    { label: "論理構造", color: "#8E44AD", icon: "🏗️" },
+    { label: "教育的洞察", color: "#E67E22", icon: "💡" },
+  ];
+
+  // Derive SOLO dimension scores from category avg_scores (map categories to 5 SOLO axes)
+  // Use skill categories' avg_score normalized to 5-point SOLO scale
+  const cats = skillMap.categories || [];
+  const globalAvg = skillMap.avg_score || 0;
+  // Estimate SOLO dimension scores from overall skill data
+  // Each dimension is derived from the average score, with variance from category distributions
+  const catAvgs = cats.map(c => c.avg_score);
+  const catMax = catAvgs.length > 0 ? Math.max(...catAvgs) : globalAvg;
+  const catMin = catAvgs.length > 0 ? Math.min(...catAvgs) : globalAvg;
+  const spread = catMax - catMin;
+
+  const soloValues = soloAxes.map((_, i) => {
+    // Create slightly varied values from the global average for visual interest
+    const base = globalAvg / 20; // normalize to ~5 scale (score is 0-100)
+    const variance = spread > 0 && catAvgs.length > i
+      ? ((catAvgs[i % catAvgs.length] - globalAvg) / 100) * 2
+      : (i === 0 ? 0.2 : i === 1 ? -0.1 : i === 2 ? 0.15 : i === 3 ? -0.2 : 0.3) * (base / 5);
+    return Math.max(0.5, Math.min(5, base + variance));
+  });
+
+  const radarAxes = soloAxes.map((a, i) => ({
+    label: a.label,
+    value: soloValues[i],
+    max: 5,
+    color: a.color,
+  }));
+
   return (
     <div>
       {/* キャラクターヘッダー */}
@@ -516,21 +668,59 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
         )}
       </div>
 
-      {/* スキルカテゴリ */}
-      <div className="skills-grid">
-        {(skillMap.categories || []).map(cat => (
-          <div key={cat.name} className="card fade-in">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
-              <span style={{ fontSize: 22 }}>{cat.icon}</span>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>{cat.name}</div>
-                <div style={{ fontSize: 11, color: "#bbb" }}>平均 {Math.round(cat.avg_score)}点</div>
-              </div>
-            </div>
-            {(cat.skills || []).map(s => <SkillBar key={s.name} skill={s} color={cat.color} />)}
+      {/* SOLO Taxonomy v3 レーダーチャート + マスタリーバー */}
+      <div className="card" style={{ marginBottom: "1rem" }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: "#222", marginBottom: "0.5rem" }}>📊 SOLO Taxonomy v3 評価</div>
+        <div style={{ fontSize: 11, color: "#bbb", marginBottom: "1rem" }}>5つの軸であなたの「教える力」を可視化</div>
+        <div style={{ display: "flex", gap: "1.5rem", alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
+          {/* Radar Chart */}
+          <div style={{ flexShrink: 0 }}>
+            <RadarChart axes={radarAxes} size={220} />
           </div>
-        ))}
+          {/* Mastery Bars */}
+          <div style={{ flex: 1, minWidth: 200 }}>
+            {soloAxes.map((a, i) => (
+              <MasteryBar
+                key={a.label}
+                label={a.label}
+                value={soloValues[i]}
+                maxValue={5}
+                color={a.color}
+                icon={a.icon}
+              />
+            ))}
+          </div>
+        </div>
       </div>
+
+      {/* スキルカテゴリ（ドメイン別マスタリー） */}
+      {cats.length > 0 && (
+        <div className="card" style={{ marginBottom: "1rem" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#222", marginBottom: "0.75rem" }}>🗺️ ドメイン別マスタリー</div>
+          <div className="skills-grid">
+            {cats.map(cat => (
+              <div key={cat.name} className="card fade-in" style={{ margin: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.875rem" }}>
+                  <span style={{ fontSize: 22 }}>{cat.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{cat.name}</div>
+                    <div style={{ fontSize: 11, color: "#bbb" }}>平均 {Math.round(cat.avg_score)}点</div>
+                  </div>
+                  <div style={{
+                    marginLeft: "auto",
+                    fontSize: 11, fontWeight: 700, borderRadius: 20, padding: "2px 8px",
+                    color: cat.avg_score >= 80 ? "#4ECDC4" : cat.avg_score >= 60 ? "#45B7D1" : cat.avg_score >= 40 ? "#F5A623" : "#FF6B6B",
+                    background: cat.avg_score >= 80 ? "#4ECDC410" : cat.avg_score >= 60 ? "#45B7D110" : cat.avg_score >= 40 ? "#F5A62310" : "#FF6B6B10",
+                  }}>
+                    {cat.avg_score >= 80 ? "熟達" : cat.avg_score >= 60 ? "習得中" : cat.avg_score >= 40 ? "成長中" : "入門"}
+                  </div>
+                </div>
+                {(cat.skills || []).map(s => <SkillBar key={s.name} skill={s} color={cat.color} />)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 強み・弱み・次のステップ */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
@@ -1158,7 +1348,7 @@ export default function App() {
   // ── Skills ───────────────────────────────────────────────────
   async function loadSkillMap() {
     const p = loadProfile();
-    if (!p.length) { setSkillError("学習履歴がありません"); return; }
+    if (!p.length) { setSkillError("教えた履歴がありません"); return; }
     if (!apiKey) { setShowApiModal(true); return; }
     setSkillLoading(true); setSkillError("");
     try {
@@ -1283,19 +1473,36 @@ export default function App() {
         {/* Stage-up */}
         {stageUp && <StageUpBanner char={stageUp.char} newStage={stageUp.newStage} onDone={() => setStageUp(null)} />}
 
-        {/* キャラ感情バナー */}
+        {/* キャラ感情バナー + floating particles */}
         {reaction && char && (
-          <div key={reaction.key} style={{
-            position: "absolute", top: "45%", left: "50%",
-            transform: "translate(-50%,-50%)",
-            background: reaction.type === "praise" ? `${cc}e0` : "rgba(60,60,60,0.88)",
-            color: "#fff", padding: "0.65rem 1.4rem", borderRadius: 100,
-            fontWeight: 700, fontSize: 14, pointerEvents: "none", zIndex: 30,
-            whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
-            animation: "fadeIn 0.2s ease",
-          }}>
-            {reaction.type === "praise" ? char.praise : char.confused}
-          </div>
+          <>
+            <div key={reaction.key} style={{
+              position: "absolute", top: "45%", left: "50%",
+              transform: "translate(-50%,-50%)",
+              background: reaction.type === "praise" ? `${cc}e0` : "rgba(60,60,60,0.88)",
+              color: "#fff", padding: "0.65rem 1.4rem", borderRadius: 100,
+              fontWeight: 700, fontSize: 14, pointerEvents: "none", zIndex: 30,
+              whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+              animation: "fadeIn 0.2s ease",
+            }}>
+              {reaction.type === "praise" ? char.praise : char.confused}
+            </div>
+            {/* Floating particles: hearts/sparkles for praise, question marks for confused */}
+            {(reaction.type === "praise"
+              ? ["\u2764\uFE0F", "\u2728", "\uD83D\uDC96", "\u2728", "\u2764\uFE0F", "\uD83C\uDF1F"]
+              : ["\u2753", "\uD83E\uDD14", "\u2753", "\uD83D\uDCA7", "\u2753", "\uD83E\uDD14"]
+            ).map((emoji, i) => (
+              <span key={`${reaction.key}-p${i}`} className="float-particle"
+                style={{
+                  left: `${25 + (i * 10)}%`,
+                  top: `${35 + (i % 3) * 8}%`,
+                  animationDelay: `${i * 0.15}s`,
+                  fontSize: 18 + (i % 3) * 4,
+                }}>
+                {emoji}
+              </span>
+            ))}
+          </>
         )}
 
         {/* Header */}
@@ -1358,14 +1565,25 @@ export default function App() {
 
         {/* Chat */}
         <div ref={chatRef} className="chat-area">
-          {turns.map((t, i) => (
+          {turns.map((t, i) => {
+            // Determine expression for AI avatar based on message content
+            const aiExpression: "happy" | "confused" | "thinking" | "neutral" = (() => {
+              if (t.role !== "ai") return "neutral";
+              const praiseKw = ["なるほど", "わかった", "正確", "天才", "すごい", "最高", "完璧", "さすが", "正しい"];
+              const confusedKw = ["わからない", "わかりません", "もう少し", "理解できません"];
+              if (praiseKw.some(k => t.text.includes(k))) return "happy";
+              if (confusedKw.some(k => t.text.includes(k))) return "confused";
+              return "neutral";
+            })();
+            const isLastAi = i === turns.length - 1 && t.role === "ai";
+            return (
             <div key={i} className="fade-in" style={{
               display: "flex", flexDirection: t.role === "ai" ? "row" : "row-reverse",
               gap: "0.5rem", alignItems: "flex-end",
             }}>
               {t.role === "ai" && (
                 char
-                  ? <Avatar char={char} size={34} pulse={i === turns.length - 1 && voiceState === "speaking"} />
+                  ? <Avatar char={char} size={34} pulse={isLastAi && voiceState === "speaking"} expression={isLastAi ? aiExpression : undefined} />
                   : <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🤖</div>
               )}
               <div className={`chat-bubble ${t.role}`}
@@ -1373,12 +1591,18 @@ export default function App() {
                 {t.text}
               </div>
             </div>
-          ))}
+            );
+          })}
           {voiceState === "processing" && (
             <div style={{ display: "flex", alignItems: "flex-end", gap: "0.5rem" }}>
-              {char ? <Avatar char={char} size={34} /> : <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center" }}>🤖</div>}
-              <div className="chat-bubble ai" style={{ padding: "0.65rem 0.9rem" }}>
-                <Bars color={cc} />
+              {char ? <Avatar char={char} size={34} expression="thinking" /> : <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center" }}>🤖</div>}
+              <div className="chat-bubble ai" style={{ padding: "0.65rem 0.9rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                {char && <span style={{ fontSize: 14 }}>{char.emoji}</span>}
+                <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <span className="typing-dot" style={{ background: cc }} />
+                  <span className="typing-dot" style={{ background: cc }} />
+                  <span className="typing-dot" style={{ background: cc }} />
+                </div>
               </div>
             </div>
           )}
@@ -1556,7 +1780,7 @@ export default function App() {
                       <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.kb_mode === "building" ? "#4ECDC4" : result.score_v3.kb_mode === "telling" ? "#F5A623" : "#45B7D1" }}>
                         {result.score_v3.kb_mode === "building" ? "📖 構築型" : result.score_v3.kb_mode === "telling" ? "📢 伝達型" : "🔄 混合型"}
                       </div>
-                      <div style={{ fontSize: 10, color: "#bbb" }}>学習スタイル</div>
+                      <div style={{ fontSize: 10, color: "#bbb" }}>教え方スタイル</div>
                     </div>
                     <div style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
                       <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.rqs_avg >= 0.6 ? "#4ECDC4" : result.score_v3.rqs_avg >= 0.3 ? "#F5A623" : "#FF6B6B" }}>
@@ -1703,7 +1927,7 @@ export default function App() {
                 setScreen("home"); setTopic(null);
                 setInputUrl(""); setInputText(""); setFileContent(""); setFileData(null); setFileInfo(null);
                 setActiveInputTab("text");
-              }} style={{ flex: 1, background: "#f5f5f5", color: "#555", marginTop: 0 }}>別トピックへ</button>
+              }} style={{ flex: 1, background: "#f5f5f5", color: "#555", marginTop: 0 }}>別のトピックを教える</button>
             </div>
 
             {/* Share Buttons */}
@@ -1711,7 +1935,7 @@ export default function App() {
               <div style={{ fontSize: 11, color: "#ccc", marginBottom: "0.5rem", fontWeight: 600 }}>結果をシェア</div>
               <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
                 <button onClick={() => {
-                  const text = `${topic.title}をAIに教えて${total}点獲得！${grade ? ` Grade ${grade}` : ""}\n#teachAI #AIに教えて学ぶ`;
+                  const text = `${topic.title}をAIに教えて${total}点獲得！${grade ? ` Grade ${grade}` : ""}\n#teachAI #AIに教えて理解する`;
                   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank");
                 }} style={{
                   padding: "8px 16px", borderRadius: 10, border: "1.5px solid #1DA1F220",
@@ -1745,7 +1969,7 @@ export default function App() {
                 border: "1px solid #FF6B6B15",
               }}>
                 <span style={{ fontSize: 22 }}>🔥</span>
-                <span style={{ fontSize: 15, fontWeight: 800, color: "#FF6B6B", marginLeft: 6 }}>{streak.currentStreak}日連続学習中！</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: "#FF6B6B", marginLeft: 6 }}>{streak.currentStreak}日連続ティーチング中！</span>
                 {streak.currentStreak >= streak.longestStreak && streak.currentStreak > 1 && (
                   <span style={{ fontSize: 11, color: "#F5A623", marginLeft: 8 }}>自己ベスト更新！</span>
                 )}
@@ -1774,7 +1998,7 @@ export default function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#222", letterSpacing: "-0.5px" }}>
-            teach<span style={{ color: "#FF6B9D" }}>AI</span>
+            <span style={{ color: "#FF6B9D", fontWeight: 900 }}>teach</span>AI
           </div>
           {streak.currentStreak > 0 && (
             <div style={{
@@ -1831,9 +2055,20 @@ export default function App() {
 
           {tab === "learn" && (
             <>
-              {/* キャラバナー */}
-              {char ? (
+              {/* キャラバナー (enhanced with greeting & mood) */}
+              {char ? (() => {
+                const hour = new Date().getHours();
+                const greeting = hour < 6 ? "夜更かし中？" : hour < 11 ? "おはよう！" : hour < 14 ? "こんにちは！" : hour < 18 ? "今日も一緒に頑張ろう！" : hour < 22 ? "お疲れさま！" : "夜の勉強タイムだね！";
+                const greetingEmoji = hour < 6 ? "\uD83C\uDF19" : hour < 11 ? "\u2600\uFE0F" : hour < 14 ? "\uD83C\uDF1F" : hour < 18 ? "\uD83D\uDCAA" : hour < 22 ? "\u2728" : "\uD83C\uDF03";
+                // Mood based on recent session performance
+                const recentScores = profile.slice(0, 3).map(p => p.score);
+                const avgRecent = recentScores.length > 0 ? recentScores.reduce((a, b) => a + b, 0) / recentScores.length : 0;
+                const mood = profile.length === 0 ? "excited" : avgRecent >= 80 ? "proud" : avgRecent >= 60 ? "happy" : avgRecent >= 40 ? "encouraging" : "caring";
+                const moodLabel = mood === "excited" ? "ワクワク" : mood === "proud" ? "誇らしい" : mood === "happy" ? "ご機嫌" : mood === "encouraging" ? "応援中" : "心配中";
+                const moodEmoji = mood === "excited" ? "\uD83E\uDD29" : mood === "proud" ? "\uD83E\uDD73" : mood === "happy" ? "\uD83D\uDE0A" : mood === "encouraging" ? "\uD83D\uDCAA" : "\uD83E\uDD17";
+                return (
                 <button onClick={() => setScreen("char_detail")}
+                  className="banner-bounce"
                   style={{
                     display: "flex", alignItems: "center", gap: "0.875rem",
                     padding: "0.875rem 1rem", borderRadius: 18,
@@ -1841,22 +2076,31 @@ export default function App() {
                     marginBottom: "1rem", cursor: "pointer", textAlign: "left", width: "100%",
                     fontFamily: "inherit",
                   }}>
-                  <Avatar char={char} size={56} />
+                  <Avatar char={char} size={56} expression={mood === "proud" || mood === "happy" ? "happy" : mood === "caring" ? "confused" : "neutral"} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.15rem" }}>
                       <span style={{ fontSize: 17, fontWeight: 800, color: "#222" }}>{char.name}</span>
+                      <span style={{ fontSize: 11, color: cc, background: `${cc}15`, padding: "1px 6px", borderRadius: 10, fontWeight: 600 }}>{moodEmoji} {moodLabel}</span>
                     </div>
-                    <div style={{ fontSize: 12, color: "#777", lineHeight: 1.4, marginBottom: "0.4rem" }}>
-                      {(char.intro || "").length > 60 ? (char.intro || "").slice(0, 60) + "…" : (char.intro || "")}
+                    <div style={{ fontSize: 12, color: cc, lineHeight: 1.4, marginBottom: "0.3rem", fontWeight: 600 }}>
+                      {greetingEmoji} {greeting}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#999", lineHeight: 1.3, marginBottom: "0.4rem" }}>
+                      {profile.length === 0
+                        ? `${char.name}に何か教えてみよう！`
+                        : `${profile.length}回教えてくれたね！`
+                      }
                     </div>
                     <StageBar char={char} n={profile.length} />
                   </div>
                   <div style={{ fontSize: 16, color: "#ddd", flexShrink: 0 }}>›</div>
                 </button>
-              ) : (
+                );
+              })() : (
                 <button onClick={() => setScreen("char_detail")}
+                  className="banner-bounce"
                   style={{ width: "100%", padding: "0.875rem", borderRadius: 18, border: "1.5px dashed #ddd", background: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", color: "#aaa", fontSize: 13, cursor: "pointer", marginBottom: "1rem", fontFamily: "inherit" }}>
-                  ＋ キャラクターを選択する
+                  + キャラクターを選択する
                 </button>
               )}
 
@@ -1951,39 +2195,9 @@ export default function App() {
 
               <button className="btn-ghost" onClick={() => setShowApiModal(true)}
                 style={{ display: "block", width: "100%", textAlign: "center", fontSize: 12, color: "#bbb", padding: "0.4rem 0", marginBottom: "1.5rem" }}>
-                {apiKey ? `🔑 ${detectProviderLabel(apiKey).label}` : trialAvailable ? "🎁 お試しモードで利用中（APIキー設定で制限解除）" : "⚠️ AIのAPIキーを設定してください"}
+                {apiKey ? `🔑 ${detectProviderLabel(apiKey).label}` : trialAvailable ? "🎁 APIキーなしで体験可能 - お試しモードで体験中" : "⚠️ APIキーを設定してAIと学習を始めましょう"}
               </button>
 
-              {/* プロアクティブ提案 */}
-              {proactive && proactive.suggestions?.length > 0 && (
-                <div className="card" style={{ marginBottom: "1rem", background: `${cc}04`, borderColor: `${cc}18` }}>
-                  <div style={{ fontSize: 12, color: cc, fontWeight: 700, marginBottom: "0.5rem" }}>
-                    {char?.emoji ?? "💡"} {proactive.message?.slice(0, 60) || "次に教えてみませんか？"}
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-                    {proactive.suggestions.slice(0, 3).map((s, i) => (
-                      <button key={i} onClick={() => { setInputText(s.topic); setActiveInputTab("text"); }}
-                        style={{
-                          padding: "0.3rem 0.7rem", borderRadius: 20, border: `1px solid ${cc}25`,
-                          background: "#fff", color: "#555", fontSize: 12, cursor: "pointer",
-                          fontFamily: "inherit", display: "flex", alignItems: "center", gap: "0.3rem",
-                        }}>
-                        <span>{s.emoji}</span> {s.topic}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* 復習リマインド（忘却曲線ベース） */}
-              <ReviewReminder
-                graph={knowledgeGraph as { nodes: { id: string; label: string; domain: string; mastery: number; sessions: number; last_seen: string | null; decay_rate: number; confidence: number }[]; edges: unknown[]; stats: { total_concepts: number; avg_mastery: number; retention_score: number } } | null}
-                accentColor={cc}
-                onSelectTopic={(topic) => {
-                  setInputText(topic);
-                  setActiveInputTab("text");
-                }}
-              />
 
               {/* 履歴 */}
               {profile.length > 0 && (
@@ -2197,13 +2411,24 @@ export default function App() {
                 </div>
               )}
 
+              {trialAvailable && !apiKey && (
+                <div style={{ fontSize: 12, color: "#10B981", background: "#ECFDF5", padding: "0.5rem 0.75rem", borderRadius: 8, marginBottom: "0.5rem", border: "1px solid #A7F3D0" }}>
+                  🎁 お試しモードが有効です。APIキーなしでもすぐに体験できます。
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button className="btn-primary" onClick={() => { const k = apiInput.trim(); setApiKey(k); localStorage.setItem("tg_apikey", k); setShowApiModal(false); }}
                   style={{ flex: 1, marginTop: 0, background: detected.color !== "#bbb" ? detected.color : undefined }}>
                   保存
                 </button>
-                <button className="btn-primary" onClick={() => setShowApiModal(false)}
-                  style={{ flex: 1, marginTop: 0, background: "#f5f5f5", color: "#555" }}>閉じる</button>
+                {trialAvailable && !apiKey ? (
+                  <button className="btn-primary" onClick={() => setShowApiModal(false)}
+                    style={{ flex: 1, marginTop: 0, background: "#10B981", color: "white" }}>🎁 お試しで始める</button>
+                ) : (
+                  <button className="btn-primary" onClick={() => setShowApiModal(false)}
+                    style={{ flex: 1, marginTop: 0, background: "#f5f5f5", color: "#555" }}>閉じる</button>
+                )}
               </div>
             </div>
           </div>

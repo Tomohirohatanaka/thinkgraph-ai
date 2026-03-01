@@ -52,6 +52,10 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
   const [apiInput, setApiInput] = useState("");
   const [savedChar, setSavedChar] = useState<string>("");
   const [showKeySaved, setShowKeySaved] = useState(false);
+  const [showDataCleared, setShowDataCleared] = useState(false);
+
+  // Streak state (loaded from localStorage)
+  const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
 
   useEffect(() => {
     try {
@@ -61,6 +65,10 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
       if (c) {
         const parsed = JSON.parse(c);
         setSavedChar(parsed.name || "");
+      }
+      const s = localStorage.getItem("tg_streak");
+      if (s) {
+        setStreak(JSON.parse(s));
       }
     } catch {}
   }, []);
@@ -252,6 +260,65 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                 <div style={{ textAlign: "center", padding: 32, color: "#9CA3AF", fontSize: 13 }}>最初のセッションを完了するとスコアが表示されます</div>
               )}
             </div>
+
+            {/* Streak & Learning Progress */}
+            <div style={{ background: "white", borderRadius: 14, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 16, fontSize: 15 }}>🔥 学習の継続</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                {[
+                  { label: "連続日数", value: streak.currentStreak, unit: "日", icon: "🔥", color: "#EF4444" },
+                  { label: "最長記録", value: streak.longestStreak, unit: "日", icon: "🏆", color: "#F59E0B" },
+                  { label: "総学習日数", value: streak.totalDays, unit: "日", icon: "📅", color: BRAND.teal },
+                  { label: "最終学習日", value: streak.lastDate ? `${new Date(streak.lastDate).getMonth()+1}/${new Date(streak.lastDate).getDate()}` : "---", unit: "", icon: "📌", color: BRAND.primary },
+                ].map((item, i) => (
+                  <div key={i} style={{ padding: "14px 16px", borderRadius: 12, background: `${item.color}08`, border: `1px solid ${item.color}20` }}>
+                    <div style={{ fontSize: 18, marginBottom: 4 }}>{item.icon}</div>
+                    <div style={{ fontSize: 10, color: "#9CA3AF", marginBottom: 2 }}>{item.label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{item.value}{item.unit}</div>
+                  </div>
+                ))}
+              </div>
+              {sessions.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 8 }}>モード別セッション数</div>
+                  {Object.entries(sessions.reduce((acc, s) => { acc[s.mode] = (acc[s.mode] || 0) + 1; return acc; }, {} as Record<string, number>)).map(([mode, count]) => (
+                    <div key={mode} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F3F4F6" }}>
+                      <span style={{ fontSize: 13, color: "#374151" }}>{MODE_LABEL[mode] || mode}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 80, background: "#E5E7EB", borderRadius: 4, height: 6 }}>
+                          <div style={{ width: `${Math.min(100, (count / sessions.length) * 100)}%`, background: BRAND.teal, height: "100%", borderRadius: 4 }} />
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: BRAND.primary, minWidth: 24, textAlign: "right" }}>{count}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Grade Distribution */}
+            <div style={{ background: "white", borderRadius: 14, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 16, fontSize: 15 }}>📊 グレード分布</div>
+              {sessions.length > 0 ? (
+                <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                  {["S", "A", "B", "C", "D", "F"].map(g => {
+                    const count = sessions.filter(s => s.grade === g).length;
+                    if (count === 0) return null;
+                    return (
+                      <div key={g} style={{ textAlign: "center", minWidth: 48 }}>
+                        <div style={{ width: 44, height: 44, borderRadius: "50%", background: GRADE_BG[g] || "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 6px", border: `2px solid ${GRADE_COLOR[g] || "#ccc"}` }}>
+                          <span style={{ fontWeight: 800, fontSize: 16, color: GRADE_COLOR[g] || "#6B7280" }}>{g}</span>
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: BRAND.primary }}>{count}</div>
+                        <div style={{ fontSize: 10, color: "#9CA3AF" }}>{Math.round((count / sessions.length) * 100)}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", padding: 32, color: "#9CA3AF", fontSize: 13 }}>セッションを完了するとグレード分布が表示されます</div>
+              )}
+            </div>
           </div>
         )}
 
@@ -434,6 +501,64 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                   <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{v}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Data Management */}
+            <div style={{ background: "white", borderRadius: 14, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 16, fontSize: 15 }}>📂 学習データ管理</div>
+              <p style={{ fontSize: 13, color: "#6B7280", marginBottom: 16, lineHeight: 1.6 }}>
+                ローカルに保存された学習データの管理ができます。
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <button onClick={() => {
+                  try {
+                    const data = {
+                      profile: JSON.parse(localStorage.getItem("tg_profile") || "[]"),
+                      character: JSON.parse(localStorage.getItem("tg_char") || "null"),
+                      streak: JSON.parse(localStorage.getItem("tg_streak") || "{}"),
+                      graph: JSON.parse(localStorage.getItem("tg_graph") || "null"),
+                      apiKey: "***hidden***",
+                    };
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a"); a.href = url; a.download = `teachai-data-${new Date().toISOString().slice(0,10)}.json`;
+                    a.click(); URL.revokeObjectURL(url);
+                  } catch {}
+                }}
+                  style={{ padding: "12px 16px", background: "#F0FDF4", borderRadius: 10, border: "1px solid #BBF7D0", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}>
+                  <span style={{ fontSize: 20 }}>📥</span>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#166534" }}>データをエクスポート</div>
+                    <div style={{ fontSize: 11, color: "#6B7280" }}>学習履歴・キャラクター・ストリークをJSON形式で保存</div>
+                  </div>
+                </button>
+                <button onClick={() => {
+                  if (confirm("ローカルの学習データ（履歴・キャラクター・ストリーク・知識グラフ）をクリアしますか？\nサーバーに保存されたデータは削除されません。")) {
+                    try {
+                      localStorage.removeItem("tg_profile");
+                      localStorage.removeItem("tg_char");
+                      localStorage.removeItem("tg_streak");
+                      localStorage.removeItem("tg_graph");
+                      localStorage.removeItem("tg_onboarded");
+                      setShowDataCleared(true);
+                      setSavedChar("");
+                      setTimeout(() => setShowDataCleared(false), 3000);
+                    } catch {}
+                  }
+                }}
+                  style={{ padding: "12px 16px", background: "#FEF2F2", borderRadius: 10, border: "1px solid #FECACA", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit" }}>
+                  <span style={{ fontSize: 20 }}>🗑️</span>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>ローカルデータをクリア</div>
+                    <div style={{ fontSize: 11, color: "#6B7280" }}>ブラウザに保存された履歴・設定をリセット</div>
+                  </div>
+                </button>
+                {showDataCleared && (
+                  <div style={{ fontSize: 12, color: "#10B981", fontWeight: 600, textAlign: "center", padding: "8px", background: "#ECFDF5", borderRadius: 8 }}>
+                    ローカルデータをクリアしました
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Developer Tools */}

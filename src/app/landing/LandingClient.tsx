@@ -1,26 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const BRAND = { primary: "#0A2342", accent: "#FF6B9D", teal: "#1A6B72", green: "#00C9A7" };
 
-function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    let frame: number;
-    const start = performance.now();
-    const duration = 1800;
-    const step = (now: number) => {
-      const progress = Math.min((now - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setCount(Math.round(target * eased));
-      if (progress < 1) frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [target]);
-  return <>{count}{suffix}</>;
-}
+const CTA_STYLE = {
+  display: "inline-flex" as const, alignItems: "center" as const, gap: 8,
+  padding: "16px 36px", borderRadius: 14,
+  background: `linear-gradient(135deg, ${BRAND.primary}, ${BRAND.teal})`,
+  color: "#fff", fontSize: 16, fontWeight: 700,
+  textDecoration: "none" as const, transition: "all 0.2s",
+  boxShadow: "0 4px 20px rgba(10,35,66,0.25)",
+};
 
 function Feature({ icon, title, desc, color }: { icon: string; title: string; desc: string; color: string }) {
   return (
@@ -108,6 +99,193 @@ function FAQ({ q, a }: { q: string; a: string }) {
   );
 }
 
+/* ── Animated Demo Section ── */
+const DEMO_MESSAGES = [
+  { role: "ai" as const, text: "光合成について教えてくれるの？ わーい！ まず、光合成ってそもそも何なのか、一言で教えて！" },
+  { role: "user" as const, text: "光合成は、植物が太陽の光エネルギーを使って、水とCO2から糖を作り出す化学反応だよ" },
+  { role: "ai" as const, text: "すごい！ じゃあ、その反応はどこで起きてるの？ 植物の体のどの部分？" },
+  { role: "user" as const, text: "葉っぱの中にある葉緑体っていう小さな器官の中で起きるんだ。チラコイドとストロマっていう構造があってね..." },
+  { role: "ai" as const, text: "チラコイド！ ストロマ！ なんかかっこいい名前！ それぞれどんな役割があるの？ もっと詳しく教えて！" },
+];
+
+function AnimatedDemo() {
+  const [visibleCount, setVisibleCount] = useState(0);
+  const [typingText, setTypingText] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (visibleCount >= DEMO_MESSAGES.length) {
+      // Reset after a pause
+      const resetTimer = setTimeout(() => {
+        setVisibleCount(0);
+        setTypingText("");
+      }, 4000);
+      return () => clearTimeout(resetTimer);
+    }
+
+    const msg = DEMO_MESSAGES[visibleCount];
+    setIsTyping(true);
+    setTypingText("");
+
+    let charIdx = 0;
+    const delay = visibleCount === 0 ? 800 : 1200;
+
+    const startTimer = setTimeout(() => {
+      intervalRef.current = setInterval(() => {
+        charIdx++;
+        if (charIdx <= msg.text.length) {
+          setTypingText(msg.text.slice(0, charIdx));
+        } else {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          setIsTyping(false);
+          setTimeout(() => setVisibleCount(c => c + 1), 600);
+        }
+      }, 30);
+    }, delay);
+
+    return () => {
+      clearTimeout(startTimer);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [visibleCount]);
+
+  return (
+    <div style={{
+      background: "#fff", borderRadius: 24, padding: "2rem",
+      border: "1.5px solid #f0f0f0",
+      boxShadow: "0 8px 40px rgba(0,0,0,0.06)",
+      maxWidth: 640, margin: "0 auto",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: "1.5rem" }}>
+        <div style={{ width: 48, height: 48, borderRadius: "50%", background: `${BRAND.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>👧</div>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#222" }}>ミオ</div>
+          <div style={{ fontSize: 12, color: BRAND.accent }}>あなたのプロテジェ（教え相手）</div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: BRAND.green, animation: "pulse 2s infinite" }} />
+          <span style={{ fontSize: 11, color: BRAND.green, fontWeight: 600 }}>LIVE</span>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 280 }}>
+        {DEMO_MESSAGES.slice(0, visibleCount).map((msg, i) => (
+          <div key={i} style={{
+            background: msg.role === "ai" ? "#f8f8f8" : BRAND.accent,
+            borderRadius: msg.role === "ai" ? "4px 16px 16px 16px" : "16px 4px 16px 16px",
+            padding: "12px 16px", maxWidth: "85%",
+            marginLeft: msg.role === "user" ? "auto" : undefined,
+            fontSize: 14, color: msg.role === "ai" ? "#333" : "#fff", lineHeight: 1.6,
+            animation: "fadeSlideIn 0.3s ease-out",
+          }}>
+            {msg.text}
+          </div>
+        ))}
+        {isTyping && visibleCount < DEMO_MESSAGES.length && (
+          <div style={{
+            background: DEMO_MESSAGES[visibleCount].role === "ai" ? "#f8f8f8" : BRAND.accent,
+            borderRadius: DEMO_MESSAGES[visibleCount].role === "ai" ? "4px 16px 16px 16px" : "16px 4px 16px 16px",
+            padding: "12px 16px", maxWidth: "85%",
+            marginLeft: DEMO_MESSAGES[visibleCount].role === "user" ? "auto" : undefined,
+            fontSize: 14,
+            color: DEMO_MESSAGES[visibleCount].role === "ai" ? "#333" : "#fff",
+            lineHeight: 1.6,
+          }}>
+            {typingText}<span style={{ animation: "blink 0.8s infinite", fontWeight: 700 }}>|</span>
+          </div>
+        )}
+      </div>
+      <div style={{ marginTop: "1rem", fontSize: 12, color: "#bbb", fontStyle: "italic", textAlign: "center" }}>
+        AIに教えるほど、自分の理解が深まる
+      </div>
+    </div>
+  );
+}
+
+/* ── Retention Bar Chart ── */
+function RetentionChart() {
+  const [animate, setAnimate] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setAnimate(true); },
+      { threshold: 0.3 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const data = [
+    { label: "受動的学習（講義を聞く）", value: 5, color: "#ddd", textColor: "#999" },
+    { label: "能動的学習（演習・議論）", value: 20, color: "#45B7D1", textColor: "#45B7D1" },
+    { label: "人に教える", value: 90, color: BRAND.accent, textColor: BRAND.accent, highlight: true },
+  ];
+
+  return (
+    <div ref={ref} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      {data.map(d => (
+        <div key={d.label}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: d.highlight ? 800 : 500, color: d.highlight ? BRAND.primary : "#555" }}>
+              {d.label}
+              {d.highlight && <span style={{ fontSize: 11, marginLeft: 8, color: BRAND.accent, fontWeight: 700, background: `${BRAND.accent}15`, padding: "2px 8px", borderRadius: 100 }}>teachAI</span>}
+            </span>
+            <span style={{ fontSize: 20, fontWeight: 900, color: d.textColor }}>{d.value}%</span>
+          </div>
+          <div style={{ height: d.highlight ? 28 : 16, background: "#f0f0f0", borderRadius: 8, overflow: "hidden", position: "relative" }}>
+            <div style={{
+              height: "100%", borderRadius: 8,
+              width: animate ? `${d.value}%` : "0%",
+              background: d.highlight ? `linear-gradient(90deg, ${BRAND.accent}, ${BRAND.primary})` : d.color,
+              transition: "width 1.2s cubic-bezier(0.16, 1, 0.3, 1)",
+              transitionDelay: d.highlight ? "0.4s" : "0s",
+              boxShadow: d.highlight ? `0 4px 16px ${BRAND.accent}40` : "none",
+            }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Comparison Table ── */
+function ComparisonTable() {
+  const rows = [
+    { topic: "学習方法", traditional: "講義を聞く・ノートを取る", teachai: "AIキャラクターに自分の言葉で教える" },
+    { topic: "理解の確認", traditional: "テストまでわからない", teachai: "教えた瞬間にギャップが判明" },
+    { topic: "記憶定着率", traditional: "5〜20%", teachai: "最大90%（教えることで定着）" },
+    { topic: "フィードバック", traditional: "成績表のみ（遅延）", teachai: "リアルタイムで5軸スコアリング" },
+    { topic: "モチベーション", traditional: "義務感・プレッシャー", teachai: "キャラが成長する達成感" },
+    { topic: "復習タイミング", traditional: "自己判断", teachai: "忘却曲線に基づく自動提案" },
+  ];
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <thead>
+          <tr>
+            <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 13, color: "#bbb", fontWeight: 600, borderBottom: "2px solid #f0f0f0" }}></th>
+            <th style={{ padding: "12px 16px", textAlign: "center", fontSize: 13, color: "#999", fontWeight: 700, borderBottom: "2px solid #f0f0f0", minWidth: 180 }}>従来の学習</th>
+            <th style={{ padding: "12px 16px", textAlign: "center", fontSize: 13, fontWeight: 800, borderBottom: `2px solid ${BRAND.accent}`, minWidth: 200, color: BRAND.accent, background: `${BRAND.accent}08`, borderRadius: "8px 8px 0 0" }}>
+              teachAIで教えて学ぶ
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              <td style={{ padding: "12px 16px", fontWeight: 700, color: BRAND.primary, borderBottom: "1px solid #f5f5f5", whiteSpace: "nowrap" }}>{row.topic}</td>
+              <td style={{ padding: "12px 16px", textAlign: "center", color: "#999", borderBottom: "1px solid #f5f5f5" }}>{row.traditional}</td>
+              <td style={{ padding: "12px 16px", textAlign: "center", color: "#333", fontWeight: 600, borderBottom: "1px solid #f5f5f5", background: `${BRAND.accent}05` }}>{row.teachai}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function LandingClient() {
   const [isVisible, setIsVisible] = useState(false);
 
@@ -118,6 +296,22 @@ export default function LandingClient() {
   return (
     <div style={{ fontFamily: "'Outfit', -apple-system, BlinkMacSystemFont, sans-serif", overflowX: "hidden" }}>
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+      {/* Animations */}
+      <style>{`
+        @keyframes fadeSlideIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.3); }
+        }
+      `}</style>
 
       {/* ── Nav ── */}
       <nav style={{
@@ -182,22 +376,15 @@ export default function LandingClient() {
             marginBottom: "2rem",
           }}>
             YouTube・PDF・テキストの内容を<br className="sp-only" />
-            AIキャラクターに<strong style={{ color: "#555" }}>教える</strong>ことで、
+            AIプロテジェ（教え相手）に<strong style={{ color: "#555" }}>教える</strong>ことで、
             理解度を定量化。<br />
-            <strong style={{ color: BRAND.teal }}>記憶定着率が2.5倍</strong>になる
+            <strong style={{ color: BRAND.teal }}>記憶定着率が最大90%</strong>になる
             ピアチュータリング手法を、誰でも。
           </p>
 
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-            <a href="/" style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              padding: "16px 36px", borderRadius: 14,
-              background: `linear-gradient(135deg, ${BRAND.primary}, ${BRAND.teal})`,
-              color: "#fff", fontSize: 16, fontWeight: 700,
-              textDecoration: "none", transition: "all 0.2s",
-              boxShadow: "0 4px 20px rgba(10,35,66,0.25)",
-            }}>
-              ✨ 無料で教え始める
+            <a href="/" style={CTA_STYLE}>
+              今すぐAIに教えてみる
             </a>
             <a href="#how" style={{
               display: "inline-flex", alignItems: "center", gap: 8,
@@ -209,61 +396,37 @@ export default function LandingClient() {
             </a>
           </div>
 
-          {/* Social proof */}
+          {/* Value props (replacing fake social proof) */}
           <div style={{
-            marginTop: "3rem", display: "flex", alignItems: "center",
-            justifyContent: "center", gap: "2.5rem", flexWrap: "wrap",
+            marginTop: "3rem", display: "flex", alignItems: "stretch",
+            justifyContent: "center", gap: "1.5rem", flexWrap: "wrap",
           }}>
             {[
-              { icon: "📚", value: 2500, suffix: "+", label: "教えたセッション" },
-              { icon: "⭐", value: 4.8, suffix: "", label: "平均満足度" },
-              { icon: "🧠", value: 96, suffix: "%", label: "理解度向上" },
-              { icon: "👤", value: 850, suffix: "+", label: "アクティブユーザー" },
-            ].map(s => (
-              <div key={s.label} style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 12, marginBottom: 2 }}>{s.icon}</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: BRAND.primary }}>
-                  {typeof s.value === "number" && s.value > 10
-                    ? <Counter target={s.value} suffix={s.suffix} />
-                    : <>{s.value}{s.suffix}</>}
-                </div>
-                <div style={{ fontSize: 11, color: "#bbb" }}>{s.label}</div>
+              { icon: "🧠", title: "定着率90%", desc: "「教える」ことで受動的学習の18倍の記憶定着" },
+              { icon: "📊", title: "5軸で即時評価", desc: "SOLO Taxonomyに基づく学術的スコアリング" },
+              { icon: "🎙️", title: "音声対応", desc: "話して教える。AIの回答も全文読み上げ" },
+              { icon: "🆓", title: "無料で体験可能", desc: "APIキーなしでもお試しセッションが可能" },
+            ].map(v => (
+              <div key={v.title} style={{
+                textAlign: "center", maxWidth: 160, padding: "1rem",
+                background: "#fff", borderRadius: 16, border: "1px solid #f0f0f0",
+              }}>
+                <div style={{ fontSize: 24, marginBottom: 6 }}>{v.icon}</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: BRAND.primary, marginBottom: 4 }}>{v.title}</div>
+                <div style={{ fontSize: 12, color: "#999", lineHeight: 1.5 }}>{v.desc}</div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Demo Preview ── */}
+      {/* ── Animated Demo ── */}
       <section style={{ padding: "60px 24px 40px", background: "#fafbfc" }}>
-        <div style={{ maxWidth: 640, margin: "0 auto", textAlign: "center" }}>
-          <div style={{
-            background: "#fff", borderRadius: 24, padding: "2rem", border: "1.5px solid #f0f0f0",
-            boxShadow: "0 8px 40px rgba(0,0,0,0.06)",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: "1.5rem" }}>
-              <div style={{ width: 48, height: 48, borderRadius: "50%", background: `${BRAND.accent}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>👧</div>
-              <div style={{ textAlign: "left" }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "#222" }}>ミオ</div>
-                <div style={{ fontSize: 12, color: BRAND.accent }}>あなたの学習パートナー</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ background: "#f8f8f8", borderRadius: "4px 16px 16px 16px", padding: "12px 16px", maxWidth: "85%", fontSize: 14, color: "#333", lineHeight: 1.6 }}>
-                光合成について教えてくれるの？ わーい！ まず、光合成ってそもそも何なのか、一言で教えて！
-              </div>
-              <div style={{ background: BRAND.accent, borderRadius: "16px 4px 16px 16px", padding: "12px 16px", maxWidth: "85%", marginLeft: "auto", fontSize: 14, color: "#fff", lineHeight: 1.6 }}>
-                光合成は、植物が太陽の光エネルギーを使って、水とCO2から糖を作り出す化学反応だよ
-              </div>
-              <div style={{ background: "#f8f8f8", borderRadius: "4px 16px 16px 16px", padding: "12px 16px", maxWidth: "85%", fontSize: 14, color: "#333", lineHeight: 1.6 }}>
-                えっ、すごい！！ じゃあ、その反応はどこで起きてるの？ 植物の体のどの部分？
-              </div>
-            </div>
-            <div style={{ marginTop: "1rem", fontSize: 12, color: "#bbb", fontStyle: "italic" }}>
-              → AIに教えるほど、自分の理解が深まる
-            </div>
-          </div>
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div style={{ fontSize: 13, color: BRAND.accent, fontWeight: 700, letterSpacing: "0.1em", marginBottom: "0.5rem" }}>LIVE DEMO</div>
+          <h2 style={{ fontSize: 28, fontWeight: 900, color: BRAND.primary }}>こんな風にAIに教えます</h2>
         </div>
+        <AnimatedDemo />
       </section>
 
       {/* ── Supported formats ── */}
@@ -292,6 +455,32 @@ export default function LandingClient() {
         ))}
       </section>
 
+      {/* ── Retention Science (Visual Bars) ── */}
+      <section style={{ padding: "80px 24px", background: "#fff" }}>
+        <div style={{ maxWidth: 700, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: "2.5rem" }}>
+            <div style={{ fontSize: 13, color: BRAND.accent, fontWeight: 700, letterSpacing: "0.1em", marginBottom: "0.5rem" }}>RESEARCH-BACKED</div>
+            <h2 style={{ fontSize: 32, fontWeight: 900, color: BRAND.primary }}>研究に基づく効果</h2>
+            <p style={{ fontSize: 14, color: "#888", marginTop: 8 }}>National Training Laboratories の学習ピラミッドに基づく記憶定着率</p>
+          </div>
+          <RetentionChart />
+          <div style={{ marginTop: "1.5rem", textAlign: "center", fontSize: 13, color: "#bbb" }}>
+            出典: National Training Laboratories, Bethel, Maine
+          </div>
+        </div>
+      </section>
+
+      {/* ── Comparison Table ── */}
+      <section style={{ padding: "80px 24px", background: "#fafbfc" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: "2.5rem" }}>
+            <div style={{ fontSize: 13, color: BRAND.accent, fontWeight: 700, letterSpacing: "0.1em", marginBottom: "0.5rem" }}>COMPARISON</div>
+            <h2 style={{ fontSize: 32, fontWeight: 900, color: BRAND.primary }}>従来の学習 vs teachAIで教えて学ぶ</h2>
+          </div>
+          <ComparisonTable />
+        </div>
+      </section>
+
       {/* ── How it works ── */}
       <section id="how" style={{ padding: "80px 24px", maxWidth: 960, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: "3rem" }}>
@@ -300,7 +489,7 @@ export default function LandingClient() {
         </div>
         <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap", justifyContent: "center" }}>
           <Step num={1} icon="✏️" title="教えたいことを入力" desc="テキストを直接入力するか、YouTube URL・PDF・Webページを貼り付け。AIが自動で内容を分析します。" />
-          <Step num={2} icon="🗣️" title="AIキャラクターに教える" desc="AIキャラクターが質問してくるので、自分の言葉で教えてあげましょう。音声でもテキストでもOK。" />
+          <Step num={2} icon="🗣️" title="AIプロテジェに教える" desc="AIプロテジェが質問してくるので、自分の言葉で教えてあげましょう。音声でもテキストでもOK。" />
           <Step num={3} icon="📊" title="教える力をスコア化" desc="5つの軸であなたの「教える力」をスコア化。弱点と強みが一目でわかります。" />
         </div>
       </section>
@@ -310,7 +499,7 @@ export default function LandingClient() {
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: "3rem" }}>
             <div style={{ fontSize: 13, color: BRAND.accent, fontWeight: 700, letterSpacing: "0.1em", marginBottom: "0.5rem" }}>AI CHARACTERS</div>
-            <h2 style={{ fontSize: 32, fontWeight: 900, color: BRAND.primary }}>あなただけの学習パートナー</h2>
+            <h2 style={{ fontSize: 32, fontWeight: 900, color: BRAND.primary }}>あなただけのプロテジェ（教え相手）</h2>
             <p style={{ fontSize: 15, color: "#888", marginTop: 8 }}>教えれば教えるほど、キャラクターも一緒に成長します</p>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "1.25rem" }}>
@@ -345,8 +534,8 @@ export default function LandingClient() {
             <h2 style={{ fontSize: 32, fontWeight: 900, color: BRAND.primary }}>なぜ「教えて学ぶ」が最強なのか</h2>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1.25rem" }}>
-            <Feature icon="🧠" title="教えて学ぶ効果" desc="「教える」行為は受動的な学習の2.5倍の定着率。認知科学に基づくアクティブラーニング手法。" color={BRAND.teal} />
-            <Feature icon="👧" title="愛着がわくキャラクター" desc="教えれば教えるほど成長するAIキャラクター。5段階の成長ステージで絆を深めましょう。" color={BRAND.accent} />
+            <Feature icon="🧠" title="教えて学ぶ効果" desc="「教える」行為は受動的な学習の18倍の定着率。認知科学に基づくアクティブラーニング手法。" color={BRAND.teal} />
+            <Feature icon="👧" title="成長するプロテジェ" desc="教えれば教えるほど成長するAIプロテジェ。5段階の成長ステージで絆を深めましょう。" color={BRAND.accent} />
             <Feature icon="📊" title="SOLO 5軸スコアリング" desc="SOLO Taxonomy に基づく学術的評価。網羅性・深さ・明晰さ・論理構造・教育的洞察。" color="#4ECDC4" />
             <Feature icon="🎙️" title="音声で教える" desc="マイクボタンを押しながら話すだけ。ハンズフリーでAIに教えられます。AIの回答も全文読み上げ。" color="#45B7D1" />
             <Feature icon="🗺️" title="スキルマップ & 知識グラフ" desc="教えた概念の繋がりを可視化。忘却曲線に基づく復習タイミングも自動提案。" color="#8E44AD" />
@@ -405,7 +594,7 @@ export default function LandingClient() {
           </div>
           <FAQ q="無料で使えますか？" a="はい、お試しモードで今すぐ無料でお使いいただけます。自分のAPIキー（Claude、GPT、Gemini、Bedrockのいずれか）を設定すると、制限なくご利用可能です。" />
           <FAQ q="どんな教材に対応していますか？" a="テキスト入力（自由記述）、YouTube動画、Webサイト、PDF、Word(DOCX)、Excel(XLSX)、PowerPoint(PPTX)、テキストファイル、画像(JPG/PNG)に対応しています。" />
-          <FAQ q="AIキャラクターとは何ですか？" a="あなたが教える相手となるAIキャラクターです。ミオ・ソラ・ハル・リンなど個性的な性格を持ち、教えるごとに成長します。愛着がわくほど、学習のモチベーションも上がります。" />
+          <FAQ q="AIプロテジェとは何ですか？" a="あなたが教える相手となるAIキャラクターです。ミオ・ソラ・ハル・リンなど個性的な性格を持ち、教えるごとに成長します。愛着がわくほど、学習のモチベーションも上がります。" />
           <FAQ q="音声入力はできますか？" a="はい。マイクボタンを押している間、音声でAIに教えることができます。AIの回答も全文読み上げに対応しており、ハンズフリーで学習できます。" />
           <FAQ q="スコアリングの仕組みは？" a="SOLO Taxonomy（学習成果の構造）に基づく5軸評価です。網羅性・深さ・明晰さ・論理構造・教育的洞察の各項目を評価し、AIが詳細なフィードバックを提供します。" />
           <FAQ q="データはどこに保存されますか？" a="学習履歴はブラウザのローカルストレージに保存されます。アカウント登録すると、クラウドにバックアップされ、ダッシュボードで詳細な分析が見られます。" />
@@ -418,7 +607,7 @@ export default function LandingClient() {
         background: `linear-gradient(135deg, ${BRAND.primary} 0%, ${BRAND.teal} 100%)`,
       }}>
         <h2 style={{ fontSize: "clamp(28px, 4vw, 44px)", fontWeight: 900, color: "#fff", marginBottom: "1rem" }}>
-          今日から、教えて学ぼう
+          今すぐAIに教えてみる
         </h2>
         <p style={{ fontSize: 16, color: "rgba(255,255,255,0.7)", maxWidth: 480, margin: "0 auto 2rem", lineHeight: 1.7 }}>
           APIキーなしでもお試し可能。<br />
@@ -433,7 +622,7 @@ export default function LandingClient() {
           boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
           transition: "transform 0.2s",
         }}>
-          ✨ 無料で教え始める
+          今すぐAIに教えてみる
         </a>
       </section>
 
@@ -453,7 +642,7 @@ export default function LandingClient() {
           <a href="/auth/signup" style={{ color: "inherit", textDecoration: "none" }}>新規登録</a>
         </div>
         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
-          &copy; 2025 teachAI. All rights reserved.
+          &copy; 2026 teachAI. All rights reserved.
         </div>
       </footer>
     </div>
