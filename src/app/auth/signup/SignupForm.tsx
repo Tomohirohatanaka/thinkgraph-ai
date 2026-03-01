@@ -119,11 +119,22 @@ function SignupFormInner() {
             <strong>{email}</strong> に確認メールを送りました。<br />
             メール内のリンクをクリックしてアカウントを有効化してください。
           </p>
+          <div style={{ marginTop: 16, padding: "12px 16px", background: "#FEF3C7", borderRadius: 12, border: "1px solid #FDE68A" }}>
+            <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.6 }}>
+              メールが届かない場合は<strong>迷惑メールフォルダ</strong>をご確認ください。
+              数分経っても届かない場合は、再度アカウント作成をお試しください。
+            </p>
+          </div>
           <a href="/auth/login" style={{
             display: "inline-block", marginTop: 24, padding: "14px 32px",
             background: B.gradientPrimary, color: "white", borderRadius: 14, textDecoration: "none",
             fontSize: 14, fontWeight: 700, boxShadow: "0 4px 16px rgba(10,35,66,0.2)",
           }}>ログインページへ</a>
+          <div style={{ marginTop: 12 }}>
+            <a href="/" style={{ fontSize: 13, color: B.teal, textDecoration: "none", fontWeight: 600 }}>
+              まずはお試しで使ってみる →
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -145,7 +156,7 @@ function SignupFormInner() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/landing" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
         </a>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

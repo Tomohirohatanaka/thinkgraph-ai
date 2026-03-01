@@ -141,7 +141,7 @@ function Hero() {
         </p>
 
         <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: "3rem" }}>
-          <a href="/auth/signup" style={{
+          <a href="/" style={{
             display: "inline-flex", alignItems: "center", gap: 10,
             padding: "18px 40px", borderRadius: 14,
             background: B.gradientPrimary, color: "#fff",
@@ -592,7 +592,7 @@ function Pricing() {
                   </div>
                 ))}
               </div>
-              <a href="/auth/signup" style={{
+              <a href="/" style={{
                 display: "block", textAlign: "center",
                 padding: "14px 24px", borderRadius: 12,
                 fontSize: 15, fontWeight: 700, textDecoration: "none",
@@ -754,7 +754,7 @@ function CTASection() {
           APIキーなしでも無料で体験可能。<br />
           あなたの「教える力」を、スコアで見てみませんか？
         </p>
-        <a href="/auth/signup" style={{
+        <a href="/" style={{
           display: "inline-flex", alignItems: "center", gap: 10,
           padding: "18px 48px", borderRadius: 14,
           background: "#fff", color: B.navy,
@@ -849,7 +849,7 @@ export default function LandingClient() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/landing" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
         </a>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -866,7 +866,7 @@ export default function LandingClient() {
           ) : (
             <>
               <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ログイン</a>
-              <a href="/auth/signup" style={{
+              <a href="/" style={{
                 padding: "10px 22px", fontSize: 13, fontWeight: 700,
                 color: "#fff", textDecoration: "none", borderRadius: 10,
                 background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
