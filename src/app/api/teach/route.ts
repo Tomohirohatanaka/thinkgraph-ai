@@ -411,9 +411,11 @@ ${scoringFormat}`;
 
   } catch (e: unknown) {
     console.error("teach API error:", e);
+    const msg = e instanceof Error ? e.message : "セッション処理に失敗しました";
+    const isAuthError = msg.includes("401") || msg.includes("403") || msg.includes("authentication") || msg.includes("invalid") || msg.includes("api_key") || msg.includes("API key");
     return NextResponse.json({
-      error: e instanceof Error ? e.message : "セッション処理に失敗しました",
-    }, { status: 500, headers: CORS_HEADERS });
+      error: isAuthError ? "APIキーが無効または期限切れです。設定をご確認ください。" : msg,
+    }, { status: isAuthError ? 401 : 500, headers: CORS_HEADERS });
   }
 }
 

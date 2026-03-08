@@ -201,7 +201,7 @@ export function v3ToLegacy(v3: ScoreV3): {
   grade: "S" | "A" | "B" | "C" | "D";
 } {
   const toV2 = convertV3toV2;
-  const total = Math.round(v3.weighted * 20); // 1-5 → 0-100
+  const total = convertV3toV2(v3.weighted); // 1-5 → 0-100
   return {
     coverage: toV2(v3.raw.completeness),
     depth: toV2(v3.raw.depth),

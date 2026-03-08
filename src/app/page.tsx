@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { convertV3toV2 } from "@/lib/scoring-v3";
 import GraphComparison from "@/components/GraphComparison";
 import CharacterGrowthTimeline from "@/components/CharacterGrowthTimeline";
 
@@ -38,6 +39,7 @@ interface SessionResult {
   grade?: "S" | "A" | "B" | "C" | "D" | "F";
   insight?: string;
   score_breakdown?: { coverage: number; depth: number; clarity: number; structural_coherence: number; spontaneity: number; total: number };
+  improvement_suggestions?: string[];
   // v3 fields
   score_v3?: ScoreV3Data;
   scoring_version?: "v2" | "v3";
@@ -1346,10 +1348,16 @@ export default function App() {
       const data = await res.json();
 
       if (data.error) {
-        const fb = "申し訳ありません、エラーが発生しました。";
+        console.error("teach API error:", data.error);
+        const isKeyError = typeof data.error === "string" && (
+          data.error.includes("APIキー") || data.error.includes("api_key") || data.error.includes("API key") || data.error.includes("authentication")
+        );
+        const fb = isKeyError
+          ? "APIキーが無効か期限切れのようです。設定画面でAPIキーをご確認ください。"
+          : `申し訳ありません、エラーが発生しました。（${typeof data.error === "string" ? data.error : "不明なエラー"}）`;
         setTurns(prev => [...prev, { role: "ai", text: fb }]);
         setVoiceState("speaking");
-        synth.speak(fb, () => setVoiceState("idle"), getCharVoice(charRef.current));
+        synth.speak(isKeyError ? "APIキーをご確認ください。" : "エラーが発生しました。", () => setVoiceState("idle"), getCharVoice(charRef.current));
         return;
       }
 
@@ -1411,6 +1419,7 @@ export default function App() {
           grade: data.grade,
           insight: data.insight || (data.score_v3?.insight),
           score_breakdown: data.score_breakdown,
+          improvement_suggestions: Array.isArray(data.improvement_suggestions) ? data.improvement_suggestions : [],
           // v3
           score_v3: data.score_v3 || undefined,
           scoring_version: data.scoring_version,
@@ -1475,10 +1484,10 @@ export default function App() {
                 score_total: score.total,
                 grade: data.grade || null,
                 key_concepts: Array.isArray(data.mastered) ? data.mastered : [],
-                score_knowledge_fidelity: data.score_breakdown?.coverage ?? (v3r ? (v3r.completeness - 1) * 25 : null),
-                score_structural_integrity: data.score_breakdown?.structural_coherence ?? (v3r ? (v3r.structural_coherence - 1) * 25 : null),
-                score_hypothesis_generation: data.score_breakdown?.spontaneity ?? (v3r ? (v3r.pedagogical_insight - 1) * 25 : null),
-                score_thinking_depth: data.score_breakdown?.depth ?? (v3r ? (v3r.depth - 1) * 25 : null),
+                score_knowledge_fidelity: data.score_breakdown?.coverage ?? (v3r ? convertV3toV2(v3r.completeness) : null),
+                score_structural_integrity: data.score_breakdown?.structural_coherence ?? (v3r ? convertV3toV2(v3r.structural_coherence) : null),
+                score_hypothesis_generation: data.score_breakdown?.spontaneity ?? (v3r ? convertV3toV2(v3r.pedagogical_insight) : null),
+                score_thinking_depth: data.score_breakdown?.depth ?? (v3r ? convertV3toV2(v3r.depth) : null),
                 messages: turnsRef.current,
               });
             }
@@ -2188,6 +2197,21 @@ export default function App() {
               </div>
               <div style={{ fontSize: 14, color: "#444", lineHeight: 1.75 }}>{result.feedback}</div>
             </div>
+
+            {/* Improvement Suggestions */}
+            {result.improvement_suggestions && result.improvement_suggestions.length > 0 && (
+              <div className="card" style={{ marginBottom: "1rem", background: "#FFFBEB", borderColor: "#FDE68A" }}>
+                <div style={{ fontSize: 11, color: "#D97706", fontWeight: 700, marginBottom: "0.5rem" }}>
+                  💡 改善のポイント
+                </div>
+                {result.improvement_suggestions.map((s, i) => (
+                  <div key={i} style={{ fontSize: 13, color: "#555", lineHeight: 1.7, padding: "0.2rem 0", display: "flex", gap: "0.4rem" }}>
+                    <span style={{ color: "#D97706", fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                    <span>{s}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Mastered / Gaps */}
             <div className="grid-2col" style={{ marginBottom: "1rem" }}>

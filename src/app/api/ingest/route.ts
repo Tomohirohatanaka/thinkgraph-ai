@@ -207,7 +207,7 @@ export async function POST(req: NextRequest) {
 
     step = "validate_key";
     const resolved = resolveApiKey(apiKey);
-    if (!resolved) return NextResponse.json({ error: "有効なAPIキーを入力してください" }, { status: 400 });
+    if (!resolved) return NextResponse.json({ error: "APIキーが必要です。設定画面でAPIキーを入力するか、トライアルモードをご利用ください。" }, { status: 400 });
     const effectiveKey = resolved.key;
     const isTrial = resolved.isTrial;
 
