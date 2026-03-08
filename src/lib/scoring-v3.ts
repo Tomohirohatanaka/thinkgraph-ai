@@ -163,41 +163,41 @@ function round1(val: number): number {
 
 /**
  * RQSシグナル(0-1)をスコア乗数に変換する。
- * signal=0.0 → 乗数0.0 (スコア0にする)
- * signal=0.5 → 乗数0.7 (やや下方修正)
- * signal=1.0 → 乗数1.2 (やや上方修正)
+ * signal=0.0 → 乗数0.55 (最低でもLLMスコアの55%は保持)
+ * signal=0.5 → 乗数0.85 (やや下方修正)
+ * signal=1.0 → 乗数1.15 (やや上方修正)
  *
- * S字カーブで自然にスケーリング。低い信号ほど厳しく減点。
+ * 緩やかなカーブでスケーリング。学習意欲を維持するため底を上げる。
  */
 function signalToMultiplier(signal: number): number {
-  // sigmoid風: 0→0, 0.3→0.4, 0.5→0.7, 0.7→0.95, 1.0→1.2
-  if (signal <= 0) return 0;
-  if (signal >= 1) return 1.2;
-  // 区分線形: 低い領域ほど急勾配で減少
-  if (signal < 0.2) return signal * 2.0;           // 0→0, 0.2→0.4
-  if (signal < 0.5) return 0.4 + (signal - 0.2) * 1.0; // 0.2→0.4, 0.5→0.7
-  return 0.7 + (signal - 0.5) * 1.0;               // 0.5→0.7, 1.0→1.2
+  if (signal <= 0) return 0.55;
+  if (signal >= 1) return 1.15;
+  // 区分線形: 0→0.55, 0.3→0.7, 0.5→0.85, 0.7→0.95, 1.0→1.15
+  if (signal < 0.3) return 0.55 + signal * 0.5;          // 0→0.55, 0.3→0.70
+  if (signal < 0.5) return 0.70 + (signal - 0.3) * 0.75; // 0.3→0.70, 0.5→0.85
+  return 0.85 + (signal - 0.5) * 0.6;                     // 0.5→0.85, 1.0→1.15
 }
 
 /**
  * 発言量(平均文字数)をスコア乗数に変換する。
- * 0文字 → 0.0, 30文字 → 0.5, 80文字 → 0.85, 150文字+ → 1.0
+ * 日本語は情報密度が高いため、短い文字数でも高い乗数を返す。
+ * 0文字 → 0.4, 20文字 → 0.75, 50文字 → 0.9, 80文字+ → 1.0
  */
 function messageLengthMultiplier(avgLen: number): number {
-  if (avgLen <= 0) return 0;
-  if (avgLen >= 150) return 1.0;
-  // 対数カーブ: 短い発言は急激に低く、長くなるほど緩やかに1.0に近づく
-  return Math.min(1.0, Math.log(avgLen + 1) / Math.log(151));
+  if (avgLen <= 0) return 0.4;
+  if (avgLen >= 80) return 1.0;
+  // 底を0.4にして、80文字で1.0に到達する緩やかなカーブ
+  return Math.min(1.0, 0.4 + 0.6 * Math.sqrt(avgLen / 80));
 }
 
 /**
  * ターン数をスコア乗数に変換する。
- * 1ターン → 0.4, 2ターン → 0.6, 3ターン → 0.8, 4+ → 1.0
+ * 1ターン → 0.7, 2ターン → 0.8, 3ターン → 0.9, 4+ → 1.0
  */
 function turnCountMultiplier(turns: number): number {
-  if (turns <= 0) return 0;
+  if (turns <= 0) return 0.5;
   if (turns >= 4) return 1.0;
-  return 0.2 + turns * 0.2; // 1→0.4, 2→0.6, 3→0.8
+  return 0.6 + turns * 0.1; // 1→0.7, 2→0.8, 3→0.9
 }
 
 /**
@@ -250,8 +250,8 @@ export function adjustScoresWithEvidence(
   // telling: pedagogical_insight に 0.5 乗数、depth に 0.7 乗数
   // mixed: pedagogical_insight に 0.8 乗数
   // building: 乗数なし（1.0）
-  const kbMultPedagogy = evidence.kbMode === "telling" ? 0.5 : evidence.kbMode === "mixed" ? 0.85 : 1.0;
-  const kbMultDepth = evidence.kbMode === "telling" ? 0.7 : 1.0;
+  const kbMultPedagogy = evidence.kbMode === "telling" ? 0.7 : evidence.kbMode === "mixed" ? 0.9 : 1.0;
+  const kbMultDepth = evidence.kbMode === "telling" ? 0.85 : 1.0;
 
   // === 全体RQS乗数（全次元共通のベースライン） ===
   // rqsAvg が低いほど全体的にスコアが下がる
@@ -260,10 +260,12 @@ export function adjustScoresWithEvidence(
   // === 最終スコア = LLMスコア × シグナル乗数 × 発言量乗数 × KB乗数 × 全体RQS乗数 ===
   // ただし、乗数の合成は幾何平均的に適用（過度な減衰を防ぐ）
   function compositeMultiplier(...mults: number[]): number {
-    // 全乗数の幾何平均を取る（0は0.01に置換して0にならないようにする）
-    const safeMults = mults.map(m => Math.max(0.01, m));
+    // 幾何平均と算術平均のブレンド（7:3）で過度な減衰を防ぐ
+    const safeMults = mults.map(m => Math.max(0.3, m));
     const product = safeMults.reduce((a, b) => a * b, 1);
-    return Math.pow(product, 1 / safeMults.length);
+    const geometric = Math.pow(product, 1 / safeMults.length);
+    const arithmetic = safeMults.reduce((a, b) => a + b, 0) / safeMults.length;
+    return geometric * 0.7 + arithmetic * 0.3;
   }
 
   const adjusted: RawScoreV3 = {
@@ -621,8 +623,8 @@ export function getV3ScoringCriteria(mode: string): string {
 各次元を0.0〜5.0の小数第一位まで（0.1刻み）で厳密に評価してください。
 ※ 0.0も正当なスコア。全く言及なし・完全に的外れなら0.0をつけること。
 ※ 元教材の内容と一文ずつ照合し、事実の正確さを最重視すること。
-※ 「なんとなく理解していそう」では高得点を与えない。具体的な根拠がある場合のみ加点する。
-※ 平均的な学生が初見で説明したら1.5〜2.5程度になるのが自然。3.5以上は明確に優れた説明にのみ。
+※ ユーザーが自分なりに説明しようとしている努力も適切に評価すること。
+※ 平均的な学生が初見でそれなりに説明したら2.5〜3.5程度が自然。4.0以上は特に優れた説明に。
 
 completeness（網羅性）:
   5.0: 教材の主要概念を100%自発的に言及し、教材にない周辺知識にも正確に触れた
@@ -666,16 +668,15 @@ pedagogical_insight（教育的洞察）:
 
 ※ 上記は整数の目安。0.1刻みの中間値を積極的に使うこと（例: 1.3, 2.7, 3.4 など）
 
-## 採点の厳格ルール（必ず守ること）
-- 教材に書いてある重要概念をユーザーが言及していない場合、completenessは必ず減点する
-- 「なぜそうなるか」の説明がなければdepthは3.0以下にする
-- 具体例が一つもなければclarityは3.5以上にしない
-- 概念間の関係を説明していなければstructural_coherenceは3.0以下にする
-- 自分の言葉で噛み砕いた説明がなければpedagogical_insightは3.0以下にする
+## 採点ガイドライン（必ず守ること）
+- 教材に書いてある重要概念をユーザーが言及していない場合、completenessは減点する
+- 「なぜそうなるか」の説明がなければdepthは3.5以下にする
+- 概念間の関係を説明していなければstructural_coherenceは3.5以下にする
 - ペナルティは適用しない（誘導・諦め・速度による減点なし）
 - 純粋にユーザーの応答品質と内容の正確さで評価すること
-- 教材に書いてある内容と一文ずつ照合し、事実関係の正誤も必ずチェックすること
-- 「よく頑張った」等の感情的配慮でスコアを水増ししないこと。正直かつ厳格に評価する
+- 教材に書いてある内容と照合し、事実関係の正誤もチェックすること
+- ユーザーが自分の言葉で説明しようとしている努力は積極的に評価する
+- 完璧でなくても、核心を捉えた説明には適正なスコアを与えること
 - 0.1刻みの精度を活用し、微妙な差を適切に反映すること（例: 3.0と3.5の間なら3.2や3.3を使う）
 
 ## ⚠️ 中央値バイアス禁止（最重要）
@@ -687,24 +688,24 @@ pedagogical_insight（教育的洞察）:
 以下はスコアの目安。実際の会話内容を必ず照合すること。
 
 例1: ユーザーが「わかんない」「うーん…」程度で何も説明できなかった
-→ completeness: 0.0, depth: 0.0, clarity: 0.5, structural_coherence: 0.0, pedagogical_insight: 0.0
-（何も説明できていない。加重平均 ≈ 0.1）
+→ completeness: 0.5, depth: 0.3, clarity: 1.0, structural_coherence: 0.3, pedagogical_insight: 0.3
+（何も説明できていない。加重平均 ≈ 0.5）
 
-例2: ユーザーが「光合成は植物がやるやつです」「太陽の光を使います」程度の説明
-→ completeness: 1.2, depth: 0.8, clarity: 1.8, structural_coherence: 0.5, pedagogical_insight: 0.7
-（単語レベルの断片的知識。因果関係の説明なし。加重平均 ≈ 1.0）
+例2: ユーザーが「光合成は植物がやるやつです」「太陽の光を使います」程度の断片的な説明
+→ completeness: 1.5, depth: 1.2, clarity: 2.2, structural_coherence: 1.0, pedagogical_insight: 1.0
+（断片的だが基本的な理解はある。加重平均 ≈ 1.4）
 
 例3: ユーザーが「光合成は植物が光エネルギーを使って水とCO2からグルコースを作る反応です。葉緑体で行われます」
-→ completeness: 2.3, depth: 1.5, clarity: 2.8, structural_coherence: 1.8, pedagogical_insight: 1.2
-（基本定義は言えるが「なぜ光が必要か」の説明がない。加重平均 ≈ 1.9）
+→ completeness: 2.8, depth: 2.2, clarity: 3.2, structural_coherence: 2.3, pedagogical_insight: 2.0
+（基本は説明できている。「なぜ」がもう少し欲しい。加重平均 ≈ 2.5）
 
 例4: ユーザーが定義＋理由＋具体例を交えて説明し、質問にも的確に回答
-→ completeness: 3.5, depth: 3.0, clarity: 3.8, structural_coherence: 2.7, pedagogical_insight: 3.2
-（しっかり理解しているが、一部の概念間の繋がりが弱い。加重平均 ≈ 3.2）
+→ completeness: 3.8, depth: 3.3, clarity: 3.8, structural_coherence: 3.0, pedagogical_insight: 3.5
+（しっかり理解している。概念間の繋がりがもう少し欲しい。加重平均 ≈ 3.5）
 
 例5: ユーザーが教材の全概念を網羅し、因果関係を多層的に説明、比喩を使って相手に合わせた説明
-→ completeness: 4.5, depth: 4.2, clarity: 4.5, structural_coherence: 4.0, pedagogical_insight: 4.3
-（素晴らしい説明。加重平均 ≈ 4.3。ここまで到達するのは稀）`;
+→ completeness: 4.5, depth: 4.3, clarity: 4.5, structural_coherence: 4.2, pedagogical_insight: 4.5
+（素晴らしい説明。加重平均 ≈ 4.4）`;
 }
 
 // ─── v3 質問テンプレート ────────────────────────────────────
@@ -796,9 +797,9 @@ JSON の各スコアフィールドは小数第一位まで (0.0-5.0、0.1刻み
 }
 
 ## feedbackの書き方（キャラの口調で書くこと）
-(1) 良かった点: ユーザーが正確に説明できた具体的な概念名を引用し、何がどう良かったか褒める
-(2) 改善点: 不足・誤解があった具体的な部分を「〇〇については本来△△だけど、□□って言ってたからちょっとズレがあるかな」のように教材と照合して具体的に指摘
-(3) 一言まとめ: 今後どうすればもっと良くなるかの一言アドバイス
+(1) 良かった点: ユーザーの実際の発言を「」で引用して、「〇〇って言ってくれたの、すごくわかりやすかった！」のように具体的に褒める。抽象的な「よく頑張った」は禁止。必ず会話中の具体的な発言内容に言及する
+(2) 改善点: ユーザーが触れなかった・不十分だった部分を、「〇〇については△△って感じなんだけど、そこまでは説明してなかったかな」のように教材と照合して具体的に指摘。ここでもユーザーの発言を引用して比較する
+(3) 一言まとめ: 次にどうすればもっとよくなるか、具体的な学習アクションを提案
 
 ## mastered（最大10個）
 会話の中でユーザーが正確に説明できたキーコンセプトのみ。曖昧な説明や誤った説明の概念は含めない。
@@ -807,8 +808,9 @@ JSON の各スコアフィールドは小数第一位まで (0.0-5.0、0.1刻み
 ユーザーが説明できなかった・誤解していた・触れなかった重要概念。教材の内容と照合して抽出する。
 
 ## improvement_suggestions（3つ）
-ユーザーの実際の説明に基づいた具体的な改善提案。抽象的な助言（「もっと頑張ろう」等）は禁止。
-例: 「光合成の反応式を覚えるだけでなく、なぜ光エネルギーが必要かの仕組みを説明できるようにしよう」
+ユーザーの実際の発言を踏まえた超具体的な改善提案。必ず「あなたは〇〇と言っていたが…」のようにユーザーの発言を参照すること。
+抽象的な助言（「もっと頑張ろう」「深く理解しよう」等）は禁止。
+例: 「『光を使う』と言っていたけど、光エネルギーがどう化学エネルギーに変わるか（光化学反応→ATP合成）の流れも説明できるとdepthが上がるよ」
 
 上記は例示。実際の会話内容と元教材を照合して正確に採点してください。`;
 }
