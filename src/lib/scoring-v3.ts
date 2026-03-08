@@ -218,44 +218,86 @@ export function v3ToLegacy(v3: ScoreV3): {
 
 // ─── RQS (Real-time Response Quality Score) ─────────────────
 
+// 言語非依存の文分割（日本語・英語・中国語・韓国語に対応）
+function splitSentences(text: string): string[] {
+  return text.split(/[。！？!?\n.]+/).filter(s => s.trim().length > 3);
+}
+
+// 言語非依存のキーワード抽出（日本語・英語・多言語対応）
+function extractKeywords(text: string): string[] {
+  return text
+    .replace(/[^\u3040-\u9fff\uAC00-\uD7AF\u4E00-\u9FFFA-Za-z0-9]/g, " ")
+    .split(/\s+/)
+    .filter(w => w.length >= 2);
+}
+
+// 説明的表現の検出（多言語対応）
+function countExplanatoryPatterns(text: string): { whyCount: number; whatCount: number } {
+  const jaWhy = /なぜ|だから|つまり|例えば|具体的|原因|理由|仕組み|ように|によって|ことで|のため|したがって|すなわち|要するに/g;
+  const enWhy = /because|therefore|since|for example|specifically|cause|reason|mechanism|thus|hence|in other words|that is|such as|due to|as a result/gi;
+  const jaWhat = /です|ます|ある|いる|する|なる|もの|こと/g;
+  const enWhat = /\bis\b|\bare\b|\bwas\b|\bwere\b|\bhas\b|\bhave\b|\bdo\b|\bdoes\b/gi;
+
+  const whyCount = (text.match(jaWhy) || []).length + (text.match(enWhy) || []).length;
+  const whatCount = (text.match(jaWhat) || []).length + (text.match(enWhat) || []).length;
+  return { whyCount, whatCount };
+}
+
 export function calculateRQS(
   userMessage: string,
   aiPreviousQuestion: string,
   _coreText: string
 ): RQSResult {
-  // 1. 文構成の質 — 文末まで完結する文があるか
-  const sentences = userMessage.split(/[。！？\n]/).filter(s => s.trim().length > 5);
-  const sentenceQuality = Math.min(1, sentences.length / 3);
+  const msgLen = userMessage.length;
 
-  // 2. 関連度 — AI質問のキーワードとの重複
-  const aiKeywords = aiPreviousQuestion
-    .replace(/[^\u3040-\u9fffA-Za-z]/g, " ")
-    .split(/\s+/)
-    .filter(w => w.length >= 2);
-  const userWords = userMessage
-    .replace(/[^\u3040-\u9fffA-Za-z]/g, " ")
-    .split(/\s+/)
-    .filter(w => w.length >= 2);
+  // 1. 文構成の質 — 完結する文があるか（多言語対応）
+  const sentences = splitSentences(userMessage);
+  // 文の質: 文数だけでなく平均文長も考慮（短文の羅列を低評価）
+  const avgSentLen = sentences.length > 0
+    ? sentences.reduce((sum, s) => sum + s.trim().length, 0) / sentences.length
+    : 0;
+  const sentCountScore = Math.min(1, sentences.length / 3);
+  const sentLenScore = Math.min(1, avgSentLen / 20);
+  const sentenceQuality = sentCountScore * 0.5 + sentLenScore * 0.5;
+
+  // 2. 関連度 — AI質問のキーワードとの重複（多言語対応）
+  const aiKeywords = extractKeywords(aiPreviousQuestion);
+  const userWords = extractKeywords(userMessage);
 
   let overlap = 0;
+  const matched = new Set<string>();
   for (const uw of userWords) {
-    if (aiKeywords.some(ak => uw.includes(ak) || ak.includes(uw))) overlap++;
+    for (const ak of aiKeywords) {
+      if (!matched.has(ak) && (uw.includes(ak) || ak.includes(uw))) {
+        overlap++;
+        matched.add(ak);
+        break;
+      }
+    }
   }
   const relevance = aiKeywords.length > 0
     ? Math.min(1, overlap / Math.max(1, aiKeywords.length * 0.3))
     : 0.5;
 
-  // 3. 情報量 — 「なぜ」「だから」「つまり」「例えば」等の説明的表現
-  const whyPatterns = /なぜ|だから|つまり|例えば|具体的|原因|理由|仕組み|ように|によって|ことで|のため/g;
-  const whatPatterns = /です|ます|ある|いる|する|なる|もの|こと/g;
-  const whyCount = (userMessage.match(whyPatterns) || []).length;
-  const whatCount = (userMessage.match(whatPatterns) || []).length;
-  const infoContent = whyCount > 0
-    ? Math.min(1, whyCount / (whyCount + whatCount + 1) * 2.5)
-    : Math.min(0.4, userMessage.length / 200);
+  // 3. 情報量 — 説明的表現の密度（多言語対応）
+  const { whyCount, whatCount } = countExplanatoryPatterns(userMessage);
+  let infoContent: number;
+  if (whyCount > 0) {
+    // 説明的表現がある: whyの割合で評価
+    infoContent = Math.min(1, whyCount / (whyCount + whatCount + 1) * 2.5);
+  } else if (msgLen > 100) {
+    // 長い文だが説明表現なし: 長さに応じて中程度
+    infoContent = Math.min(0.5, msgLen / 300);
+  } else {
+    // 短い文で説明表現なし
+    infoContent = Math.min(0.3, msgLen / 200);
+  }
 
-  // 4. 詳述度 — 文字数・文数
-  const elaboration = Math.min(1, userMessage.length / 150);
+  // 4. 詳述度 — 文字数 + ユニークキーワード数（長さだけでなく多様性も）
+  const uniqueWords = new Set(userWords).size;
+  const lenScore = Math.min(1, msgLen / 150);
+  const diversityScore = Math.min(1, uniqueWords / 10);
+  const elaboration = lenScore * 0.6 + diversityScore * 0.4;
 
   // 総合RQS
   const score = Math.round((
@@ -283,34 +325,61 @@ export function selectNextState(
   currentState: QuestionState,
   turn: number,
   hasMisconception: boolean,
-  totalTurns = 6
+  totalTurns = 6,
+  stateHistory: { state: QuestionState }[] = []
 ): { state: QuestionState; reason: string } {
   // Turn 1: 常にORIENT
   if (turn === 1) {
     return { state: "ORIENT", reason: "初回ターン: 全体像を確認" };
   }
 
-  // 優先オーバーライド: 誤概念検出
-  if (hasMisconception && turn <= totalTurns - 2) {
+  // 優先オーバーライド: 誤概念検出（ただしCHALLENGE連続は避ける）
+  if (hasMisconception && turn <= totalTurns - 2 && currentState !== "CHALLENGE") {
     return { state: "CHALLENGE", reason: `誤概念検出 (RQS=${rqs.toFixed(2)})` };
   }
 
-  // Spacing callback: Turn 5 で Turn 1 の概念を再訪
+  // Spacing callback: 最終ターンは統合
   if (turn >= totalTurns - 1) {
     return { state: "INTEGRATE", reason: "最終統合 + spacing callback" };
   }
 
-  // RQS駆動遷移
+  // サイクル検出: 同じ状態が2回連続したら別の状態へ移行
+  const recentStates = stateHistory.slice(-2).map(s => s.state);
+  const isStuck = recentStates.length >= 2 && recentStates.every(s => s === currentState);
+
+  // RQS駆動遷移（サイクル回避付き）
+  let nextState: QuestionState;
+  let reason: string;
+
   if (rqs < 0.3) {
-    return { state: "CLARIFY", reason: `低RQS (${rqs.toFixed(2)}): 明確化が必要` };
+    nextState = "CLARIFY";
+    reason = `低RQS (${rqs.toFixed(2)}): 明確化が必要`;
+  } else if (rqs < 0.6) {
+    nextState = "PROBE_DEPTH";
+    reason = `中RQS (${rqs.toFixed(2)}): 深掘りへ`;
+  } else if (rqs < 0.8) {
+    nextState = "PROBE_BREADTH";
+    reason = `高RQS (${rqs.toFixed(2)}): 幅広く探る`;
+  } else {
+    nextState = "INTEGRATE";
+    reason = `最高RQS (${rqs.toFixed(2)}): 統合段階へ`;
   }
-  if (rqs < 0.6) {
-    return { state: "PROBE_DEPTH", reason: `中RQS (${rqs.toFixed(2)}): 深掘りへ` };
+
+  // サイクル回避: 同じ状態にスタックしている場合、一段上の状態に移行
+  if (isStuck && nextState === currentState) {
+    const escalation: Record<QuestionState, QuestionState> = {
+      ORIENT: "CLARIFY",
+      CLARIFY: "PROBE_DEPTH",
+      PROBE_DEPTH: "PROBE_BREADTH",
+      PROBE_BREADTH: "INTEGRATE",
+      INTEGRATE: "CHALLENGE",
+      CHALLENGE: "INTEGRATE",
+    };
+    nextState = escalation[currentState];
+    reason += ` → サイクル回避: ${currentState}から${nextState}へエスカレーション`;
   }
-  if (rqs < 0.8) {
-    return { state: "PROBE_BREADTH", reason: `高RQS (${rqs.toFixed(2)}): 幅広く探る` };
-  }
-  return { state: "INTEGRATE", reason: `最高RQS (${rqs.toFixed(2)}): 統合段階へ` };
+
+  return { state: nextState, reason };
 }
 
 // ─── Knowledge-Building 検出 ────────────────────────────────
@@ -326,28 +395,33 @@ export function detectKnowledgeBuilding(
   userMessage: string,
   previousMessages: string[]
 ): { mode: "building" | "telling" | "mixed"; signals: KBSignals } {
-  // 文構成品質
-  const sentences = userMessage.split(/[。！？]/).filter(s => s.trim().length > 3);
-  const avgLen = sentences.reduce((sum, s) => sum + s.length, 0) / Math.max(1, sentences.length);
+  // 文構成品質（多言語対応）
+  const sentences = splitSentences(userMessage);
+  const avgLen = sentences.reduce((sum, s) => sum + s.trim().length, 0) / Math.max(1, sentences.length);
   const sentence_formation: KBSignals["sentence_formation"] =
-    avgLen > 15 && sentences.length >= 2 ? "well-formed" : "fragmented";
+    avgLen > 12 && sentences.length >= 2 ? "well-formed" : "fragmented";
 
-  // 関連度（前のメッセージからの引用 vs 新情報）
+  // 関連度（前のメッセージからの引用 vs 新情報）（多言語対応）
   const prevText = previousMessages.join(" ");
-  const prevWords = new Set(prevText.replace(/[^\u3040-\u9fffA-Za-z]/g, " ").split(/\s+/).filter(w => w.length >= 3));
-  const userWords = userMessage.replace(/[^\u3040-\u9fffA-Za-z]/g, " ").split(/\s+/).filter(w => w.length >= 3);
+  const prevWords = new Set(extractKeywords(prevText).filter(w => w.length >= 3));
+  const userWords = extractKeywords(userMessage).filter(w => w.length >= 3);
   const newWords = userWords.filter(w => !prevWords.has(w));
-  const relevance: KBSignals["relevance"] = newWords.length > userWords.length * 0.3 ? "direct" : "tangential";
+  const relevance: KBSignals["relevance"] = userWords.length === 0
+    ? "tangential"
+    : newWords.length > userWords.length * 0.3 ? "direct" : "tangential";
 
-  // 情報内容タイプ
-  const explanatory = /なぜ|だから|つまり|例えば|ように|によって|ため|原理|仕組み|関係/;
+  // 情報内容タイプ（多言語対応）
+  const { whyCount } = countExplanatoryPatterns(userMessage);
   const information_content: KBSignals["information_content"] =
-    explanatory.test(userMessage) ? "why-informative" : "what-informative";
+    whyCount > 0 ? "why-informative" : "what-informative";
 
-  // 詳述度
-  const repetitions = previousMessages.filter(m =>
-    userWords.filter(w => m.includes(w)).length > userWords.length * 0.7
-  );
+  // 詳述度（繰り返しチェック改善）
+  const repetitions = previousMessages.filter(m => {
+    const mWords = extractKeywords(m);
+    if (userWords.length === 0 || mWords.length === 0) return false;
+    const overlapCount = userWords.filter(w => mWords.some(mw => mw.includes(w) || w.includes(mw))).length;
+    return overlapCount > userWords.length * 0.7;
+  });
   const elaboration: KBSignals["elaboration"] =
     repetitions.length === 0 && newWords.length >= 3 ? "descriptive" : "repetitive";
 

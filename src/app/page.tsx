@@ -1546,6 +1546,14 @@ export default function App() {
     if (!inputUrl.trim() && !inputText.trim() && !fileContent && !fileData) {
       setError("URLかテキストを入力してください"); return;
     }
+    // テキストのみの場合、最小文字数チェック
+    if (!inputUrl.trim() && !fileData && !fileContent) {
+      const textLen = inputText.trim().length;
+      if (textLen > 0 && textLen < 20) {
+        setError("もう少し詳しく入力してください（20文字以上）。短いキーワードの場合はURLで教材を指定するか、詳しい説明文を入力してください。");
+        return;
+      }
+    }
 
     // 長文テキストの場合は分割を提案
     const textToSend = fileContent || inputText.trim();
@@ -1668,6 +1676,11 @@ export default function App() {
 
   function forceEnd() {
     if (!topicRef.current || voiceState !== "idle") return;
+    const userTurnCount = turnsRef.current.filter(t => t.role === "user").length;
+    if (userTurnCount < 1) {
+      // ユーザーがまだ1回も発言していない場合は終了不可
+      return;
+    }
     const history = turnsRef.current.slice(1);
     const lastUserText = [...turnsRef.current].reverse().find(t => t.role === "user")?.text || "以上です";
     doAiTurn(topicRef.current, history, lastUserText, {
