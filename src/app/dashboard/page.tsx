@@ -24,7 +24,7 @@ export default async function DashboardPage() {
   // Get session history
   const { data: sessions } = await supabase
     .from("sessions")
-    .select("id, topic, mode, grade, score_total, key_concepts, created_at, score_knowledge_fidelity, score_structural_integrity, score_hypothesis_generation, score_thinking_depth")
+    .select("id, topic, mode, grade, score_total, key_concepts, created_at, score_knowledge_fidelity, score_structural_integrity, score_hypothesis_generation, score_thinking_depth, score_completeness, score_depth_v3, score_clarity_v3, score_structural_coherence_v3, score_pedagogical_insight, score_weighted_v3, grade_v3, scoring_version")
     .eq("user_id", user.id)
     .eq("status", "completed")
     .order("created_at", { ascending: false })

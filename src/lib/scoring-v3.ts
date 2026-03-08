@@ -112,11 +112,11 @@ export function getV3Weights(mode: string): Record<V3Dimension, number> {
 // ─── v3 グレード境界 ────────────────────────────────────────
 
 const GRADE_BOUNDARIES = {
-  A: 4.2,
-  B: 3.4,
-  C: 2.6,
-  D: 1.8,
-  // F: below 1.8
+  A: 4.0,
+  B: 3.0,
+  C: 2.0,
+  D: 1.0,
+  // F: below 1.0
 };
 
 function getGradeV3(weighted: number): ScoreV3["grade"] {
@@ -131,16 +131,160 @@ function getGradeV3(weighted: number): ScoreV3["grade"] {
 
 function checkConjunctive(scores: RawScoreV3, grade: string): boolean {
   const values = Object.values(scores);
-  const allAbove2 = values.every(s => s >= 2);
-  const allAbove3 = values.every(s => s >= 3);
+  const allAbove1 = values.every(s => s >= 1.0);
+  const allAbove2_5 = values.every(s => s >= 2.5);
 
-  // グレードB以上なら全次元3以上必要
+  // グレードB以上なら全次元2.5以上必要
   if (grade === "A" || grade === "B") {
-    if (!allAbove3) return false;
+    if (!allAbove2_5) return false;
   }
-  // どのグレードでも全次元2以上必要
-  if (!allAbove2) return false;
+  // どのグレードでも全次元1.0以上必要（0.x は極端に弱い）
+  if (!allAbove1) return false;
   return true;
+}
+
+// ─── エビデンスベース・スコア補正 ─────────────────────────────
+//
+// LLMは中央値バイアス（3.0付近に収束）を持つ。
+// キャップ（上限制限）ではなく、RQSシグナルを乗数として
+// LLMスコアを連続的にスケーリングし、0.0〜5.0のフルレンジを活用する。
+
+export interface ConversationEvidence {
+  rqsHistory: { score: number; signals: { sentence_quality: number; relevance: number; info_content: number; elaboration: number } }[];
+  kbMode: "building" | "telling" | "mixed";
+  userMessages: string[];  // ユーザーの全発言
+  totalTurns: number;
+}
+
+/** 0.0-5.0 に丸める */
+function round1(val: number): number {
+  return Math.round(Math.max(0, Math.min(5.0, val)) * 10) / 10;
+}
+
+/**
+ * RQSシグナル(0-1)をスコア乗数に変換する。
+ * signal=0.0 → 乗数0.0 (スコア0にする)
+ * signal=0.5 → 乗数0.7 (やや下方修正)
+ * signal=1.0 → 乗数1.2 (やや上方修正)
+ *
+ * S字カーブで自然にスケーリング。低い信号ほど厳しく減点。
+ */
+function signalToMultiplier(signal: number): number {
+  // sigmoid風: 0→0, 0.3→0.4, 0.5→0.7, 0.7→0.95, 1.0→1.2
+  if (signal <= 0) return 0;
+  if (signal >= 1) return 1.2;
+  // 区分線形: 低い領域ほど急勾配で減少
+  if (signal < 0.2) return signal * 2.0;           // 0→0, 0.2→0.4
+  if (signal < 0.5) return 0.4 + (signal - 0.2) * 1.0; // 0.2→0.4, 0.5→0.7
+  return 0.7 + (signal - 0.5) * 1.0;               // 0.5→0.7, 1.0→1.2
+}
+
+/**
+ * 発言量(平均文字数)をスコア乗数に変換する。
+ * 0文字 → 0.0, 30文字 → 0.5, 80文字 → 0.85, 150文字+ → 1.0
+ */
+function messageLengthMultiplier(avgLen: number): number {
+  if (avgLen <= 0) return 0;
+  if (avgLen >= 150) return 1.0;
+  // 対数カーブ: 短い発言は急激に低く、長くなるほど緩やかに1.0に近づく
+  return Math.min(1.0, Math.log(avgLen + 1) / Math.log(151));
+}
+
+/**
+ * ターン数をスコア乗数に変換する。
+ * 1ターン → 0.4, 2ターン → 0.6, 3ターン → 0.8, 4+ → 1.0
+ */
+function turnCountMultiplier(turns: number): number {
+  if (turns <= 0) return 0;
+  if (turns >= 4) return 1.0;
+  return 0.2 + turns * 0.2; // 1→0.4, 2→0.6, 3→0.8
+}
+
+/**
+ * LLMスコアをエビデンスに基づいて連続的にスケーリングする。
+ * キャップ（上限制限）は使わない。各次元にRQSシグナル乗数を掛けて
+ * 0.0〜5.0のフルレンジを出力する。
+ */
+export function adjustScoresWithEvidence(
+  raw: RawScoreV3,
+  evidence: ConversationEvidence
+): RawScoreV3 {
+  // === RQS信号の平均を計算 ===
+  const hasRQS = evidence.rqsHistory.length > 0;
+  const avgSignals = hasRQS ? {
+    sentence_quality: evidence.rqsHistory.reduce((s, r) => s + r.signals.sentence_quality, 0) / evidence.rqsHistory.length,
+    relevance: evidence.rqsHistory.reduce((s, r) => s + r.signals.relevance, 0) / evidence.rqsHistory.length,
+    info_content: evidence.rqsHistory.reduce((s, r) => s + r.signals.info_content, 0) / evidence.rqsHistory.length,
+    elaboration: evidence.rqsHistory.reduce((s, r) => s + r.signals.elaboration, 0) / evidence.rqsHistory.length,
+  } : { sentence_quality: 0.5, relevance: 0.5, info_content: 0.5, elaboration: 0.5 };
+
+  const rqsAvg = hasRQS
+    ? evidence.rqsHistory.reduce((s, r) => s + r.score, 0) / evidence.rqsHistory.length
+    : 0.5;
+
+  // === 各次元にRQSシグナル乗数を適用 ===
+  // 各シグナルと次元の対応:
+  //   info_content → depth (因果説明の量)
+  //   sentence_quality → clarity (文の質)
+  //   relevance → structural_coherence (質問との関連性 = 構造的理解)
+  //   elaboration → completeness (詳述量 = 網羅性)
+  //   info_content + elaboration → pedagogical_insight (説明の質 + 量)
+  const signalMultipliers = {
+    completeness:          signalToMultiplier(avgSignals.elaboration),
+    depth:                 signalToMultiplier(avgSignals.info_content),
+    clarity:               signalToMultiplier(avgSignals.sentence_quality),
+    structural_coherence:  signalToMultiplier(avgSignals.relevance),
+    pedagogical_insight:   signalToMultiplier((avgSignals.info_content + avgSignals.elaboration) / 2),
+  };
+
+  // === 発言量乗数（全次元共通） ===
+  const userMsgs = evidence.userMessages;
+  const totalChars = userMsgs.reduce((sum, m) => sum + m.length, 0);
+  const avgMsgLen = userMsgs.length > 0 ? totalChars / userMsgs.length : 0;
+  const lenMult = messageLengthMultiplier(avgMsgLen);
+
+  // === ターン数乗数（completeness, structural_coherence に影響） ===
+  const turnMult = turnCountMultiplier(evidence.totalTurns);
+
+  // === KB mode 乗数 ===
+  // telling: pedagogical_insight に 0.5 乗数、depth に 0.7 乗数
+  // mixed: pedagogical_insight に 0.8 乗数
+  // building: 乗数なし（1.0）
+  const kbMultPedagogy = evidence.kbMode === "telling" ? 0.5 : evidence.kbMode === "mixed" ? 0.85 : 1.0;
+  const kbMultDepth = evidence.kbMode === "telling" ? 0.7 : 1.0;
+
+  // === 全体RQS乗数（全次元共通のベースライン） ===
+  // rqsAvg が低いほど全体的にスコアが下がる
+  const globalRqsMult = signalToMultiplier(rqsAvg);
+
+  // === 最終スコア = LLMスコア × シグナル乗数 × 発言量乗数 × KB乗数 × 全体RQS乗数 ===
+  // ただし、乗数の合成は幾何平均的に適用（過度な減衰を防ぐ）
+  function compositeMultiplier(...mults: number[]): number {
+    // 全乗数の幾何平均を取る（0は0.01に置換して0にならないようにする）
+    const safeMults = mults.map(m => Math.max(0.01, m));
+    const product = safeMults.reduce((a, b) => a * b, 1);
+    return Math.pow(product, 1 / safeMults.length);
+  }
+
+  const adjusted: RawScoreV3 = {
+    completeness: round1(raw.completeness * compositeMultiplier(
+      signalMultipliers.completeness, lenMult, turnMult, globalRqsMult
+    )),
+    depth: round1(raw.depth * compositeMultiplier(
+      signalMultipliers.depth, lenMult, kbMultDepth, globalRqsMult
+    )),
+    clarity: round1(raw.clarity * compositeMultiplier(
+      signalMultipliers.clarity, lenMult, globalRqsMult
+    )),
+    structural_coherence: round1(raw.structural_coherence * compositeMultiplier(
+      signalMultipliers.structural_coherence, lenMult, turnMult, globalRqsMult
+    )),
+    pedagogical_insight: round1(raw.pedagogical_insight * compositeMultiplier(
+      signalMultipliers.pedagogical_insight, lenMult, kbMultPedagogy, globalRqsMult
+    )),
+  };
+
+  return adjusted;
 }
 
 // ─── v3 スコア計算 ──────────────────────────────────────────
@@ -149,23 +293,29 @@ export function calcScoreV3(
   raw: RawScoreV3,
   mode: string,
   kbMode: "building" | "telling" | "mixed" = "mixed",
-  rqsAvg = 0.5
+  rqsAvg = 0.5,
+  evidence?: ConversationEvidence
 ): ScoreV3 {
+  // エビデンスベース補正（データがある場合のみ）
+  const effectiveRaw = evidence
+    ? adjustScoresWithEvidence(raw, evidence)
+    : raw;
+
   const weights = getV3Weights(mode);
 
   // 加重平均
   let weighted = 0;
   for (const [dim, w] of Object.entries(weights)) {
-    weighted += raw[dim as V3Dimension] * w;
+    weighted += effectiveRaw[dim as V3Dimension] * w;
   }
   weighted = Math.round(weighted * 100) / 100;
 
   const grade = getGradeV3(weighted);
-  const conjunctive_pass = checkConjunctive(raw, grade);
-  const insight = generateInsightV3(raw, grade, kbMode);
+  const conjunctive_pass = checkConjunctive(effectiveRaw, grade);
+  const insight = generateInsightV3(effectiveRaw, grade, kbMode);
 
   return {
-    raw,
+    raw: effectiveRaw,
     weighted,
     grade,
     conjunctive_pass,
@@ -178,16 +328,13 @@ export function calcScoreV3(
 // ─── v2 ↔ v3 変換 ──────────────────────────────────────────
 
 export function convertV2toV3(v2Score: number): number {
-  if (v2Score >= 90) return 5;
-  if (v2Score >= 75) return 4;
-  if (v2Score >= 60) return 3;
-  if (v2Score >= 45) return 2;
-  return 1;
+  // 0-100 → 0.0-5.0 の線形マッピング
+  return Math.round((v2Score / 100) * 5 * 10) / 10;
 }
 
 export function convertV3toV2(v3Score: number): number {
-  // 1-5 → 0-100 の線形マッピング
-  return Math.round(((v3Score - 1) / 4) * 100);
+  // 0.0-5.0 → 0-100 の線形マッピング
+  return Math.round((v3Score / 5) * 100);
 }
 
 // v2 legacy形式への変換 (後方互換)
@@ -469,51 +616,95 @@ export function getV3ScoringCriteria(mode: string): string {
     .map(([k, w]) => `${k}(重み${Math.round(w * 100)}%)`)
     .join(", ");
 
-  return `## 評価軸 — SOLO Taxonomy 1-5 スケール（${weightDesc}）
+  return `## 評価軸 — SOLO Taxonomy 0.0-5.0 スケール（${weightDesc}）
 
-各次元を1〜5の整数で評価してください。
-※ 元教材の内容と照合し、事実の正確さも考慮すること。自信満々でも内容が間違っていれば低く評価する。
+各次元を0.0〜5.0の小数第一位まで（0.1刻み）で厳密に評価してください。
+※ 0.0も正当なスコア。全く言及なし・完全に的外れなら0.0をつけること。
+※ 元教材の内容と一文ずつ照合し、事実の正確さを最重視すること。
+※ 「なんとなく理解していそう」では高得点を与えない。具体的な根拠がある場合のみ加点する。
+※ 平均的な学生が初見で説明したら1.5〜2.5程度になるのが自然。3.5以上は明確に優れた説明にのみ。
 
 completeness（網羅性）:
-  5: 教材の主要概念をほぼすべて自発的に言及し、周辺知識にも触れた
-  4: 大部分を説明できた。一部漏れはあるが核心は網羅
-  3: 半分程度の概念に言及。重要な概念が抜けている
-  2: 主要概念の一部のみ。断片的な知識
-  1: ほとんど言及できなかった、またはトピックとの関連が薄い
+  5.0: 教材の主要概念を100%自発的に言及し、教材にない周辺知識にも正確に触れた
+  4.0: 大部分（80%程度）を説明。核心は網羅しているが一部の重要概念が欠落
+  3.0: 半分程度の概念に言及。重要な概念が複数抜けている
+  2.0: 主要概念の一部（20%程度）のみ。ほぼ断片的な知識
+  1.0: トピックに関連する単語を数個挙げた程度
+  0.0: 全く言及なし。トピックと無関係な発言のみ
 
 depth（深さ）:
-  5: 仕組み・原理・因果関係まで正確に説明。「なぜそうなるか」を自分の言葉で論理的に展開
-  4: 概念の意味と理由を説明できるが、一部の因果関係が浅い
-  3: 表面的な定義は言えるが「なぜ？」への答えが不十分
-  2: 用語の定義のみ。理由や仕組みの説明がない
-  1: 本質的な理解が見られない。暗記した単語の羅列
+  5.0: 仕組み・原理・因果関係まで正確に説明。「なぜそうなるか」を自分の言葉で多層的に論理展開
+  4.0: 概念の意味と主な理由を説明できるが、一部の因果関係が浅いまま
+  3.0: 表面的な定義は言えるが「なぜ？」への答えが不十分。暗記レベル
+  2.0: 用語の定義のみ。理由や仕組みの説明がない
+  1.0: 本質的な理解が見られない。暗記した単語の羅列
+  0.0: 何も説明できなかった。沈黙またはトピック外の発言のみ
 
 clarity（明晰さ）:
-  5: 論理的で具体例あり。初めて聞く人にも理解できる説明
-  4: 概ね明瞭だが、具体例や順序が若干不足
-  3: やや混乱しているが、伝えたい内容は推測できる
-  2: 何を言いたいかが不明瞭。説明が飛躍する
-  1: 理解困難。話の筋が追えない
+  5.0: 完璧に論理的で具体例が豊富。初めて聞く人にも即座に理解できる説明
+  4.0: 概ね明瞭だが、具体例や順序が若干不足
+  3.0: やや混乱しているが、伝えたい内容は推測できる
+  2.0: 何を言いたいかが不明瞭。説明が飛躍する
+  1.0: 理解困難。話の筋が追えない
+  0.0: 意味のある文が一つもない
 
 structural_coherence（論理構造）:
-  5: 概念間の依存関係・因果・順序が正確。体系的で一貫した説明
-  4: 大筋は正しいが一部に論理の飛躍や順序の前後がある
-  3: 個別の概念は知っているが、概念同士の繋がりが不明確
-  2: 知識が散発的で、論理的な流れがない
-  1: 概念間の関係を理解していない
+  5.0: 概念間の依存関係・因果・順序が完全に正確。体系的で一貫した説明
+  4.0: 大筋は正しいが一部に論理の飛躍や順序の前後がある
+  3.0: 個別の概念は知っているが、概念同士の繋がりが不明確
+  2.0: 知識が散発的で、論理的な流れがない
+  1.0: 概念間の関係を理解していない
+  0.0: 概念を一つも正しく関連づけられなかった
 
 pedagogical_insight（教育的洞察）:
-  5: 自ら比喩・具体例・身近な例えを使い、相手の理解度に合わせて説明を調整できる
-  4: 質問に応じて良い説明ができ、時に自発的に補足や具体例を出す
-  3: 質問には答えるが、自発的な展開や工夫がない
-  2: こちらが具体的に聞かないと何も出てこない。受動的
-  1: 教材の丸暗記を繰り返すだけ。自分の言葉で説明できない
+  5.0: 自ら比喩・具体例・身近な例えを使い、相手の理解度に合わせて説明を動的に調整できる
+  4.0: 質問に応じて良い説明ができ、時に自発的に補足や具体例を出す
+  3.0: 質問には答えるが、自発的な展開や工夫がない
+  2.0: こちらが具体的に聞かないと何も出てこない。受動的
+  1.0: 教材の丸暗記を繰り返すだけ。自分の言葉で説明できない
+  0.0: 応答がないか、質問を完全に無視した
 
-## 採点の注意点
+※ 上記は整数の目安。0.1刻みの中間値を積極的に使うこと（例: 1.3, 2.7, 3.4 など）
+
+## 採点の厳格ルール（必ず守ること）
+- 教材に書いてある重要概念をユーザーが言及していない場合、completenessは必ず減点する
+- 「なぜそうなるか」の説明がなければdepthは3.0以下にする
+- 具体例が一つもなければclarityは3.5以上にしない
+- 概念間の関係を説明していなければstructural_coherenceは3.0以下にする
+- 自分の言葉で噛み砕いた説明がなければpedagogical_insightは3.0以下にする
 - ペナルティは適用しない（誘導・諦め・速度による減点なし）
 - 純粋にユーザーの応答品質と内容の正確さで評価すること
-- 教材に書いてある内容と照合し、事実関係の正誤も必ずチェックすること
-- 「よく頑張った」等の感情的配慮でスコアを水増ししないこと。正直に評価する`;
+- 教材に書いてある内容と一文ずつ照合し、事実関係の正誤も必ずチェックすること
+- 「よく頑張った」等の感情的配慮でスコアを水増ししないこと。正直かつ厳格に評価する
+- 0.1刻みの精度を活用し、微妙な差を適切に反映すること（例: 3.0と3.5の間なら3.2や3.3を使う）
+
+## ⚠️ 中央値バイアス禁止（最重要）
+あなたには「とりあえず3.0前後をつける」傾向がある。これは禁止する。
+各次元を独立に評価し、次元ごとに異なるスコアを出すこと。5次元すべてが2.8〜3.2に収まるのは異常。
+必ず最低1つは他より0.5以上低いスコアの次元を見つけること（その学生の弱点）。
+
+## 採点キャリブレーション例
+以下はスコアの目安。実際の会話内容を必ず照合すること。
+
+例1: ユーザーが「わかんない」「うーん…」程度で何も説明できなかった
+→ completeness: 0.0, depth: 0.0, clarity: 0.5, structural_coherence: 0.0, pedagogical_insight: 0.0
+（何も説明できていない。加重平均 ≈ 0.1）
+
+例2: ユーザーが「光合成は植物がやるやつです」「太陽の光を使います」程度の説明
+→ completeness: 1.2, depth: 0.8, clarity: 1.8, structural_coherence: 0.5, pedagogical_insight: 0.7
+（単語レベルの断片的知識。因果関係の説明なし。加重平均 ≈ 1.0）
+
+例3: ユーザーが「光合成は植物が光エネルギーを使って水とCO2からグルコースを作る反応です。葉緑体で行われます」
+→ completeness: 2.3, depth: 1.5, clarity: 2.8, structural_coherence: 1.8, pedagogical_insight: 1.2
+（基本定義は言えるが「なぜ光が必要か」の説明がない。加重平均 ≈ 1.9）
+
+例4: ユーザーが定義＋理由＋具体例を交えて説明し、質問にも的確に回答
+→ completeness: 3.5, depth: 3.0, clarity: 3.8, structural_coherence: 2.7, pedagogical_insight: 3.2
+（しっかり理解しているが、一部の概念間の繋がりが弱い。加重平均 ≈ 3.2）
+
+例5: ユーザーが教材の全概念を網羅し、因果関係を多層的に説明、比喩を使って相手に合わせた説明
+→ completeness: 4.5, depth: 4.2, clarity: 4.5, structural_coherence: 4.0, pedagogical_insight: 4.3
+（素晴らしい説明。加重平均 ≈ 4.3。ここまで到達するのは稀）`;
 }
 
 // ─── v3 質問テンプレート ────────────────────────────────────
@@ -535,8 +726,9 @@ function generateInsightV3(
   kbMode: string
 ): string {
   const entries = Object.entries(scores) as [V3Dimension, number][];
-  const lowest = entries.sort(([, a], [, b]) => a - b)[0];
-  const highest = entries.sort(([, a], [, b]) => b - a)[0];
+  const sorted = [...entries].sort(([, a], [, b]) => a - b);
+  const lowest = sorted[0];
+  const highest = [...entries].sort(([, a], [, b]) => b - a)[0];
 
   const dimLabels: Record<V3Dimension, string> = {
     completeness: "網羅性",
@@ -547,7 +739,7 @@ function generateInsightV3(
   };
 
   const suggestions: Record<V3Dimension, string> = {
-    completeness: "もう少し多くの概念に触れてみよう",
+    completeness: "教材の重要概念をもっと多く言及してみよう",
     depth: "「なぜ？」「どう動く？」の説明を増やすと深みが出る",
     clarity: "具体例や順序立てた説明でさらに伝わりやすくなる",
     structural_coherence: "概念同士のつながりを意識して説明してみよう",
@@ -555,27 +747,48 @@ function generateInsightV3(
   };
 
   if (grade === "A") {
-    return `素晴らしい説明！特に${dimLabels[highest[0]]}が際立っている`;
+    return `素晴らしい説明！特に${dimLabels[highest[0]]}(${highest[1].toFixed(1)})が際立っている`;
   }
 
   const kbHint = kbMode === "telling"
     ? "。暗記した内容の再現ではなく、自分の理解で語ってみよう"
     : "";
 
-  return `${suggestions[lowest[0]]}${kbHint}`;
+  // 極端に低い場合
+  const mean = sorted.reduce((s, [, v]) => s + v, 0) / sorted.length;
+  if (mean < 1.0) {
+    return `教材を一度しっかり読み直してから、もう一度挑戦してみよう${kbHint}`;
+  }
+
+  // 低スコアの次元が複数ある場合は指摘
+  const lowDims = sorted.filter(([, v]) => v < 2.0);
+  if (lowDims.length >= 3) {
+    return `全体的に理解が浅い。特に${dimLabels[lowest[0]]}(${lowest[1].toFixed(1)})を重点的に復習しよう${kbHint}`;
+  }
+
+  return `${dimLabels[lowest[0]]}(${lowest[1].toFixed(1)})が課題: ${suggestions[lowest[0]]}${kbHint}`;
 }
 
 // ─── v3 最終採点プロンプトJSON形式 ──────────────────────────
 
 export function getV3FinalPromptFormat(): string {
-  return `JSON の各数値フィールドは整数のみ (1-5)。説明文字列は禁止:
+  return `## 採点手順（この順番で思考すること）
+1. まず教材から主要概念を5-10個リストアップする
+2. ユーザーの各発言を読み、どの概念に正確に言及したかチェックする
+3. 「なぜ？」に答えている箇所、具体例がある箇所を特定する
+4. 上記のチェック結果に基づいて各次元のスコアを決定する
+5. 5次元のスコアを見直し、全部が似たスコア（±0.3以内）なら弱い次元を下方修正する
+
+JSON の各スコアフィールドは小数第一位まで (0.0-5.0、0.1刻み)。整数ではなく必ず小数で出力すること。
+0.0も正当なスコア。該当する能力が全く見られなければ0.0をつけること。
+注意: 5次元すべてが同じようなスコアになるのは不自然。必ずメリハリをつけること。
 
 {
-  "completeness": 4,
-  "depth": 3,
-  "clarity": 4,
-  "structural_coherence": 3,
-  "pedagogical_insight": 3,
+  "completeness": 2.3,
+  "depth": 1.5,
+  "clarity": 2.8,
+  "structural_coherence": 1.8,
+  "pedagogical_insight": 1.2,
   "feedback": "フィードバック文",
   "mastered": ["概念A", "概念B"],
   "gaps": ["概念C"],
