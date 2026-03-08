@@ -2054,14 +2054,14 @@ export default function App() {
     const isV3 = !!result.score_v3;
     const total = result.score.total;
     const v3w = result.score_v3?.weighted ?? 0;
-    const displayScore = isV3 ? v3w.toFixed(1) : String(total);
-    const displayMax = isV3 ? "/ 5.0" : "/ 100";
+    const displayScore = isV3 ? v3w.toFixed(2) : String(total);
+    const displayMax = isV3 ? "/ 5.00" : "/ 100";
     const grade = result.grade || result.score_v3?.grade;
     const topEmoji = isV3
-      ? (v3w >= 4.2 ? "🎉" : v3w >= 3.4 ? "✨" : v3w >= 2.6 ? "💪" : "📚")
+      ? (v3w >= 4.2 ? "🎉" : v3w >= 3.4 ? "✨" : v3w >= 2.6 ? "💪" : v3w >= 1.8 ? "📚" : "📖")
       : (total >= 85 ? "🎉" : total >= 70 ? "✨" : total >= 50 ? "💪" : "📚");
     const headline = isV3
-      ? (v3w >= 4.2 ? "完璧に教えられた！" : v3w >= 3.4 ? "上手に教えられた！" : v3w >= 2.6 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう")
+      ? (v3w >= 4.2 ? "完璧に教えられた！" : v3w >= 3.4 ? "しっかり理解して教えられた！" : v3w >= 2.6 ? "基礎はあるがもう少し深く！" : v3w >= 1.8 ? "理解が浅い部分が多い" : "もう一度教材を確認しよう")
       : (total >= 85 ? "完璧に教えられた！" : total >= 70 ? "上手に教えられた！" : total >= 50 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう");
     const hasPenalty = !isV3 && (result.leading_penalty > 0 || result.gave_up_penalty > 0);
     const gradeColor = (g?: string) =>
@@ -2126,6 +2126,8 @@ export default function App() {
                       {sortedDims.map(({ key, label, color }) => {
                         const val = result.score_v3!.raw[key] ?? 0;
                         const weight = modeWeights[key] ?? 0;
+                        const displayVal = typeof val === "number" ? val.toFixed(1) : "0.0";
+                        const scoreColor = val >= 4.0 ? "#10B981" : val >= 3.0 ? color : val >= 2.0 ? "#F59E0B" : "#EF4444";
                         return (
                           <div key={key}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
@@ -2133,10 +2135,10 @@ export default function App() {
                                 {label}
                                 <span style={{ fontSize: 10, color: "#bbb", marginLeft: "0.3rem" }}>×{(weight * 100).toFixed(0)}%</span>
                               </span>
-                              <span style={{ fontSize: 13, fontWeight: 800, color }}>{val} / 5</span>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: scoreColor }}>{displayVal} / 5.0</span>
                             </div>
                             <div style={{ height: 8, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
-                              <div style={{ width: `${(val / 5) * 100}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.8s ease" }} />
+                              <div style={{ width: `${(val / 5) * 100}%`, height: "100%", background: scoreColor, borderRadius: 4, transition: "width 0.8s ease" }} />
                             </div>
                           </div>
                         );

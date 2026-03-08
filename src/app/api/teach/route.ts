@@ -266,11 +266,17 @@ ${coreRef}
 
 ${scoringCriteria}
 
-## 評価の心構え
-- 元教材の内容とユーザーの説明を照合し、正確さ・網羅性・深さを公正に判定する
+## 評価の心構え（最重要 — 必ず守ること）
+- 元教材の内容とユーザーの説明を一文ずつ照合し、正確さ・網羅性・深さを厳格に判定する
 - 感情的に甘い点数をつけない。ユーザーの実際の理解度を正直に反映する
+- 平均的な学生が初見で説明した場合、加重平均2.0〜2.5が自然。3.5以上は明確に優れた説明にのみ与える
+- 全次元を3.0以上にするのはかなり良い説明の場合のみ。「なんとなく合っている」程度では2.5前後が妥当
+- ユーザーが教材の重要概念を言及していない場合、completenessを必ず減点する
+- 「なぜそうなるか」の説明がなければdepthは3.0以下
+- 具体例が一つもなければclarityは3.5以上にしない
 - 全体的に良い説明でも、欠けている部分があれば必ずgapsに記載する
 - feedbackでは「何が良かったか」と「何が足りなかったか」の両方を具体的に述べる
+- 各スコアは0.1刻みで精密に。微妙な差を適切に反映すること（例: 2.3, 3.7 など）
 
 ## 出力形式（厳守）
 ${name}らしいセリフを2〜3文書いた後、以下のJSONを出力してください。
@@ -306,9 +312,11 @@ ${scoringFormat}`;
         return isNaN(n) ? fallback : Math.max(0, Math.min(100, Math.round(n)));
       };
 
-      const numV3 = (v: unknown, fallback = 3): number => {
+      const numV3 = (v: unknown, fallback = 2.5): number => {
         const n = parseFloat(String(v ?? ""));
-        return isNaN(n) ? fallback : Math.max(1, Math.min(5, Math.round(n)));
+        if (isNaN(n)) return fallback;
+        // 0.1刻みに丸める (1.0-5.0)
+        return Math.max(1.0, Math.min(5.0, Math.round(n * 10) / 10));
       };
 
       // JSON前のテキスト = キャラの締めセリフ
