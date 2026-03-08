@@ -770,7 +770,7 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
             </div>
             <div style={{ display: "flex", gap: "1rem", marginTop: "0.3rem", fontSize: 12, color: "#888" }}>
               <span>📚 {skillMap.total_sessions}セッション</span>
-              <span>⭐ 平均{skillMap.avg_score}点</span>
+              <span>⭐ 平均{typeof skillMap.avg_score === "number" && skillMap.avg_score <= 5 ? skillMap.avg_score.toFixed(1) : skillMap.avg_score}</span>
             </div>
           </div>
           <button className="btn-ghost" onClick={onRefresh} style={{ fontSize: 11, color: "#bbb", padding: "0.25rem 0.6rem", border: "1px solid #eee", borderRadius: 8, flexShrink: 0 }}>更新</button>
@@ -822,15 +822,15 @@ function SkillsView({ profile, skillMap, skillLoading, skillError, onLoad, onRef
                   <span style={{ fontSize: 22 }}>{cat.icon}</span>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700 }}>{cat.name}</div>
-                    <div style={{ fontSize: 11, color: "#bbb" }}>平均 {Math.round(cat.avg_score)}点</div>
+                    <div style={{ fontSize: 11, color: "#bbb" }}>平均 {cat.avg_score <= 5 ? cat.avg_score.toFixed(1) : Math.round(cat.avg_score)}</div>
                   </div>
                   <div style={{
                     marginLeft: "auto",
                     fontSize: 11, fontWeight: 700, borderRadius: 20, padding: "2px 8px",
-                    color: cat.avg_score >= 80 ? "#4ECDC4" : cat.avg_score >= 60 ? "#45B7D1" : cat.avg_score >= 40 ? "#F5A623" : "#FF6B9D",
-                    background: cat.avg_score >= 80 ? "#4ECDC410" : cat.avg_score >= 60 ? "#45B7D110" : cat.avg_score >= 40 ? "#F5A62310" : "#FF6B9D10",
+                    color: cat.avg_score >= 4.0 ? "#4ECDC4" : cat.avg_score >= 3.0 ? "#45B7D1" : cat.avg_score >= 2.0 ? "#F5A623" : "#FF6B9D",
+                    background: cat.avg_score >= 4.0 ? "#4ECDC410" : cat.avg_score >= 3.0 ? "#45B7D110" : cat.avg_score >= 2.0 ? "#F5A62310" : "#FF6B9D10",
                   }}>
-                    {cat.avg_score >= 80 ? "熟達" : cat.avg_score >= 60 ? "習得中" : cat.avg_score >= 40 ? "成長中" : "入門"}
+                    {cat.avg_score >= 4.0 ? "熟達" : cat.avg_score >= 3.0 ? "習得中" : cat.avg_score >= 2.0 ? "成長中" : "入門"}
                   </div>
                 </div>
                 {(cat.skills || []).map(s => <SkillBar key={s.name} skill={s} color={cat.color} />)}
@@ -2063,7 +2063,6 @@ export default function App() {
     const headline = isV3
       ? (v3w >= 4.0 ? "完璧に教えられた！" : v3w >= 3.0 ? "しっかり理解して教えられた！" : v3w >= 2.0 ? "基礎はあるがもう少し深く！" : v3w >= 1.0 ? "理解が浅い部分が多い" : "もう一度教材を確認しよう")
       : (total >= 85 ? "完璧に教えられた！" : total >= 70 ? "上手に教えられた！" : total >= 50 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう");
-    const hasPenalty = !isV3 && (result.leading_penalty > 0 || result.gave_up_penalty > 0);
     const gradeColor = (g?: string) =>
       g === "S" ? "#FFD700" : g === "A" ? cc : g === "B" ? "#4ECDC4" : g === "C" ? "#F5A623" : g === "D" ? "#FF6B9D" : g === "F" ? "#999" : "#FF6B9D";
 
@@ -2085,7 +2084,7 @@ export default function App() {
                 </div>
               )}
               {isV3 && (
-                <div style={{ marginTop: "0.4rem", fontSize: 10, color: "#aaa" }}>SOLO Taxonomy v3</div>
+                <div style={{ marginTop: "0.4rem", fontSize: 10, color: "#aaa" }}>5次元評価</div>
               )}
             </div>
 
@@ -2144,91 +2143,21 @@ export default function App() {
                         );
                       })}
                     </div>
-                    {/* KB Mode & RQS & Insight */}
-                    <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                      <div style={{ flex: 1, minWidth: 80, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.kb_mode === "building" ? "#4ECDC4" : result.score_v3.kb_mode === "telling" ? "#F5A623" : "#45B7D1" }}>
-                          {result.score_v3.kb_mode === "building" ? "📖 構築型" : result.score_v3.kb_mode === "telling" ? "📢 伝達型" : "🔄 混合型"}
-                        </div>
-                        <div style={{ fontSize: 10, color: "#bbb" }}>教え方スタイル</div>
-                      </div>
-                      <div style={{ flex: 1, minWidth: 80, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.rqs_avg >= 0.6 ? "#4ECDC4" : result.score_v3.rqs_avg >= 0.3 ? "#F5A623" : "#FF6B9D" }}>
-                          {(result.score_v3.rqs_avg * 100).toFixed(0)}%
-                        </div>
-                        <div style={{ fontSize: 10, color: "#bbb" }}>応答品質 (RQS)</div>
-                      </div>
-                    </div>
                     {result.insight && (
-                      <div style={{ marginTop: "0.5rem", background: `${cc}08`, borderRadius: 10, padding: "0.6rem 0.75rem" }}>
-                        <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
+                      <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", marginTop: "0.75rem" }}>
+                        <div style={{ background: `${cc}08`, borderRadius: 10, padding: "0.6rem 0.75rem" }}>
+                          <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
+                        </div>
                       </div>
                     )}
                   </>
                 );
               })() : (
-                <>
-                  {/* v2 Score Display (legacy) */}
-                  <div style={{ textAlign: "center", marginBottom: "1rem" }}>
-                    <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{total}</div>
-                    {grade && (
-                      <div style={{
-                        display: "inline-block", padding: "2px 12px", borderRadius: 20,
-                        background: gradeColor(grade), color: grade === "S" ? "#000" : "#fff",
-                        fontSize: 13, fontWeight: 800, marginTop: "0.3rem",
-                      }}>Grade {grade}</div>
-                    )}
-                    <div style={{ fontSize: 11, color: "#bbb", marginTop: "0.2rem" }}>総合スコア / 100</div>
-                  </div>
-                  {/* 5D Bars (v2) */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                    {[
-                      { key: "coverage", label: "網羅性", color: "#FF6B9D" },
-                      { key: "depth", label: "深さ", color: "#4ECDC4" },
-                      { key: "clarity", label: "明瞭さ", color: "#45B7D1" },
-                      ...(result.score_breakdown ? [
-                        { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
-                        { key: "spontaneity", label: "自発性", color: "#E67E22" },
-                      ] : []),
-                    ].map(({ key, label, color }) => {
-                      const scoreAny = result.score as unknown as Record<string, number>;
-                      const breakdownAny = result.score_breakdown as unknown as Record<string, number> | undefined;
-                      const val = key === "coverage" || key === "depth" || key === "clarity"
-                        ? scoreAny[key] ?? 0
-                        : breakdownAny?.[key] ?? 0;
-                      return (
-                        <div key={key}>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.2rem" }}>
-                            <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
-                            <span style={{ fontSize: 13, fontWeight: 800, color }}>{val}</span>
-                          </div>
-                          <div style={{ height: 8, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
-                            <div style={{ width: `${Math.max(0, Math.min(100, val))}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.8s ease" }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {result.insight && (
-                    <div style={{ marginTop: "0.75rem", borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem" }}>
-                      <div style={{ background: `${cc}08`, borderRadius: 10, padding: "0.6rem 0.75rem" }}>
-                        <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
-                      </div>
-                    </div>
-                  )}
-                </>
+                <div style={{ textAlign: "center", padding: "1rem", color: "#bbb", fontSize: 13 }}>
+                  スコアデータがありません
+                </div>
               )}
             </div>
-
-            {/* Penalty (v2 only) */}
-            {hasPenalty && (
-              <div className="card" style={{ marginBottom: "1rem", background: "#fff8f8", borderColor: "#FF6B9D30" }}>
-                <div style={{ fontSize: 11, color: "#FF6B9D", fontWeight: 700, marginBottom: "0.5rem" }}>⚠️ スコア補正</div>
-                <div style={{ fontSize: 12, color: "#aaa", marginBottom: "0.3rem" }}>補正前スコア: {result.raw_score.total}点</div>
-                {result.leading_penalty > 0 && <div style={{ fontSize: 12, color: "#FF6B9D" }}>誘導質問ペナルティ: −{result.leading_penalty}pt</div>}
-                {result.gave_up_penalty > 0 && <div style={{ fontSize: 12, color: "#FF6B9D", marginTop: "0.2rem" }}>未解答ペナルティ: −{result.gave_up_penalty}pt</div>}
-              </div>
-            )}
 
             {/* Feedback */}
             <div className="card" style={{ marginBottom: "1rem", background: `${cc}06`, borderColor: `${cc}25` }}>
@@ -2318,20 +2247,6 @@ export default function App() {
                 profile={profile}
                 accentColor={cc}
               />
-            )}
-
-            {/* キャラ成長バー */}
-            {char && (
-              <div className="card" style={{ marginBottom: "1.25rem", borderColor: `${cc}25`, background: `${cc}05` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-                  <Avatar char={char} size={40} />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#222" }}>{char.custom_name || char.name}との絆</div>
-                    <div style={{ fontSize: 11, color: cc }}>{stageLabel(char, profile.length)} · {profile.length}セッション</div>
-                  </div>
-                </div>
-                <StageBar char={char} n={profile.length} />
-              </div>
             )}
 
             <div style={{ display: "flex", gap: "0.75rem" }}>

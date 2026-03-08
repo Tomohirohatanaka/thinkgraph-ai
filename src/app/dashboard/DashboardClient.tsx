@@ -10,6 +10,11 @@ interface Session {
   key_concepts: string[] | null; created_at: string;
   score_knowledge_fidelity: number | null; score_structural_integrity: number | null;
   score_hypothesis_generation: number | null; score_thinking_depth: number | null;
+  // v3 columns
+  score_completeness: number | null; score_depth_v3: number | null;
+  score_clarity_v3: number | null; score_structural_coherence_v3: number | null;
+  score_pedagogical_insight: number | null; score_weighted_v3: number | null;
+  grade_v3: string | null; scoring_version: string | null;
 }
 interface Stats { total_sessions: number; avg_score: number; total_seconds: number; last_session_at: string; unique_topics: number; }
 interface Concept { label: string; node_type: string; mention_count: number; confidence: number; }
@@ -178,10 +183,22 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
     return { label: "未設定", color: "#bbb" };
   };
 
-  const avgScore = stats?.avg_score ?? 0;
+  // Determine if mostly v3 sessions
+  const v3Sessions = sessions.filter(s => s.scoring_version === "v3" || s.score_weighted_v3 != null);
+  const isV3 = v3Sessions.length > 0;
+  const avgScoreRaw = stats?.avg_score ?? 0;
+  // If v3 sessions exist, compute v3 average; otherwise use v2
+  const avgScoreV3 = isV3
+    ? (v3Sessions.reduce((sum, s) => sum + (s.score_weighted_v3 ?? 0), 0) / v3Sessions.length)
+    : (avgScoreRaw / 100) * 5;
+  const avgDisplay = isV3 ? avgScoreV3.toFixed(2) : avgScoreRaw ? String(Math.round(avgScoreRaw)) : "—";
   const totalSessions = stats?.total_sessions ?? sessions.length;
-  const scoreGrade = avgScore >= 90 ? "S" : avgScore >= 75 ? "A" : avgScore >= 60 ? "B" : avgScore >= 45 ? "C" : "D";
+  const scoreGrade = avgScoreV3 >= 4.0 ? "A" : avgScoreV3 >= 3.0 ? "B" : avgScoreV3 >= 2.0 ? "C" : avgScoreV3 >= 1.0 ? "D" : "F";
   const recent = sessions.slice(0, 7).reverse();
+  // Helper: get session score in v3 scale (0-5)
+  const sessionScoreV3 = (s: Session): number => s.score_weighted_v3 ?? (s.score_total != null ? (s.score_total / 100) * 5 : 0);
+  // Helper: get session grade (v3 preferred)
+  const sessionGrade = (s: Session): string | null => s.grade_v3 ?? s.grade;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F8FAFC", fontFamily: "'Outfit', -apple-system, BlinkMacSystemFont, sans-serif" }}>
@@ -240,7 +257,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
         <div className="dash-kpi-grid">
           {[
             { label: "教えたセッション", value: totalSessions, sub: "完了セッション数", color: BRAND.teal, icon: "📚" },
-            { label: "平均スコア", value: avgScore ? `${avgScore}pt` : "—", sub: `総合評価 ${scoreGrade}`, color: BRAND.primary, icon: "🏆" },
+            { label: "平均スコア", value: avgDisplay !== "—" ? `${avgDisplay} / 5` : "—", sub: `Grade ${scoreGrade}`, color: BRAND.primary, icon: "🏆" },
             { label: "教えたトピック", value: stats?.unique_topics ?? 0, sub: "ユニークテーマ数", color: BRAND.green, icon: "🗂️" },
             { label: "総学習時間", value: formatDuration(stats?.total_seconds ?? 0), sub: "累計学習時間", color: "#F59E0B", icon: "⏱️" },
           ].map((kpi, i) => (
@@ -253,13 +270,14 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
           ))}
         </div>
 
-        {/* 強み・弱み分析 */}
+        {/* 強み・弱み分析 (v3 SOLO dimensions) */}
         {sessions.length > 0 && (() => {
           const dims = [
-            { key: "score_knowledge_fidelity" as const, label: "概念理解度", icon: "📘" },
-            { key: "score_structural_integrity" as const, label: "構造整合度", icon: "🏗️" },
-            { key: "score_hypothesis_generation" as const, label: "仮説生成力", icon: "💡" },
-            { key: "score_thinking_depth" as const, label: "思考深度", icon: "🔬" },
+            { key: "score_completeness" as const, label: "網羅性", icon: "📋" },
+            { key: "score_depth_v3" as const, label: "深さ", icon: "🔬" },
+            { key: "score_clarity_v3" as const, label: "明晰さ", icon: "💎" },
+            { key: "score_structural_coherence_v3" as const, label: "論理構造", icon: "🏗️" },
+            { key: "score_pedagogical_insight" as const, label: "教育的洞察", icon: "💡" },
           ];
           const dimAvgs = dims.map(d => {
             const vals = sessions.map(s => s[d.key]).filter((v): v is number => v != null);
@@ -275,13 +293,13 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#D1FAE5", borderRadius: 10 }}>
                 <span style={{ fontSize: 16 }}>{strongest.icon}</span>
                 <span style={{ fontSize: 12, color: "#065F46", fontWeight: 700 }}>強み: {strongest.label}</span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: "#059669" }}>{Math.round(strongest.avg)}pt</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#059669" }}>{strongest.avg.toFixed(1)}</span>
               </div>
               {strongest.key !== weakest.key && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#FEF3C7", borderRadius: 10 }}>
                   <span style={{ fontSize: 16 }}>{weakest.icon}</span>
                   <span style={{ fontSize: 12, color: "#92400E", fontWeight: 700 }}>伸びしろ: {weakest.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: "#D97706" }}>{Math.round(weakest.avg)}pt</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "#D97706" }}>{weakest.avg.toFixed(1)}</span>
                 </div>
               )}
               <div style={{ display: "flex", gap: 12, marginLeft: "auto" }}>
@@ -289,7 +307,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                   <div key={d.key} style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 9, color: "#9CA3AF" }}>{d.label}</div>
                     <div style={{ width: 40, background: "#E5E7EB", borderRadius: 3, height: 5, marginTop: 3 }}>
-                      <div style={{ width: `${d.avg}%`, background: d.key === strongest.key ? "#10B981" : d.key === weakest.key ? "#F59E0B" : BRAND.teal, height: "100%", borderRadius: 3 }} />
+                      <div style={{ width: `${(d.avg / 5) * 100}%`, background: d.key === strongest.key ? "#10B981" : d.key === weakest.key ? "#F59E0B" : BRAND.teal, height: "100%", borderRadius: 3 }} />
                     </div>
                   </div>
                 ))}
@@ -321,12 +339,12 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
               {recent.length > 0 ? (
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120 }}>
                   {recent.map((s, i) => {
-                    const score = s.score_total ?? 0;
-                    const h = Math.max(8, (score / 100) * 100);
-                    const g = s.grade || "C";
+                    const score = sessionScoreV3(s);
+                    const h = Math.max(8, (score / 5) * 100);
+                    const g = sessionGrade(s) || "C";
                     return (
                       <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: GRADE_COLOR[g] || BRAND.teal }}>{score ? Math.round(score) : "—"}</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: GRADE_COLOR[g] || BRAND.teal }}>{score > 0 ? score.toFixed(1) : "—"}</div>
                         <div style={{ width: "100%", height: h, background: GRADE_COLOR[g] || BRAND.teal, borderRadius: "4px 4px 0 0", opacity: 0.85 }} />
                         <div style={{ fontSize: 9, color: "#9CA3AF" }}>{formatDate(s.created_at).split(" ")[0]}</div>
                       </div>
@@ -342,32 +360,44 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
             <div style={{ background: "white", borderRadius: 14, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
               <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 16, fontSize: 15 }}>🎯 最新セッションのスコア詳細</div>
-              {sessions[0] ? (
+              {sessions[0] ? (() => {
+                const s0 = sessions[0];
+                const hasV3 = s0.score_completeness != null;
+                const dims = hasV3 ? [
+                  { label: "網羅性", value: s0.score_completeness },
+                  { label: "深さ", value: s0.score_depth_v3 },
+                  { label: "明晰さ", value: s0.score_clarity_v3 },
+                  { label: "論理構造", value: s0.score_structural_coherence_v3 },
+                  { label: "教育的洞察", value: s0.score_pedagogical_insight },
+                ] : [
+                  { label: "概念理解度", value: s0.score_knowledge_fidelity != null ? (s0.score_knowledge_fidelity / 100) * 5 : null },
+                  { label: "構造整合度", value: s0.score_structural_integrity != null ? (s0.score_structural_integrity / 100) * 5 : null },
+                  { label: "仮説生成力", value: s0.score_hypothesis_generation != null ? (s0.score_hypothesis_generation / 100) * 5 : null },
+                  { label: "思考深度", value: s0.score_thinking_depth != null ? (s0.score_thinking_depth / 100) * 5 : null },
+                ];
+                return (
                 <>
                   <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 16 }}>
-                    「{sessions[0].topic}」{formatDate(sessions[0].created_at)}
+                    「{s0.topic}」{formatDate(s0.created_at)}
                   </div>
-                  {[
-                    { label: "概念理解度", value: sessions[0].score_knowledge_fidelity },
-                    { label: "構造整合度", value: sessions[0].score_structural_integrity },
-                    { label: "仮説生成力", value: sessions[0].score_hypothesis_generation },
-                    { label: "思考深度",   value: sessions[0].score_thinking_depth },
-                  ].map((dim, i) => {
+                  {dims.map((dim, i) => {
                     const v = dim.value ?? 0;
+                    const scoreColor = v >= 4.0 ? "#10B981" : v >= 3.0 ? BRAND.teal : v >= 2.0 ? "#F59E0B" : "#EF4444";
                     return (
                       <div key={i} style={{ marginBottom: 12 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 12 }}>
                           <span style={{ color: "#374151" }}>{dim.label}</span>
-                          <span style={{ fontWeight: 700, color: BRAND.primary }}>{Math.round(v)}</span>
+                          <span style={{ fontWeight: 700, color: scoreColor }}>{v.toFixed(1)} / 5.0</span>
                         </div>
                         <div style={{ background: "#E5E7EB", borderRadius: 4, height: 7 }}>
-                          <div style={{ width: `${v}%`, background: v >= 75 ? "#10B981" : v >= 50 ? BRAND.teal : "#F59E0B", height: "100%", borderRadius: 4, transition: "width 0.5s" }} />
+                          <div style={{ width: `${(v / 5) * 100}%`, background: scoreColor, height: "100%", borderRadius: 4, transition: "width 0.5s" }} />
                         </div>
                       </div>
                     );
                   })}
                 </>
-              ) : (
+                );
+              })() : (
                 <div style={{ textAlign: "center", padding: 32, color: "#9CA3AF", fontSize: 13 }}>最初のセッションを完了するとスコアが表示されます</div>
               )}
             </div>
@@ -412,8 +442,8 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
               <div style={{ fontWeight: 700, color: BRAND.primary, marginBottom: 16, fontSize: 15 }}>📊 グレード分布</div>
               {sessions.length > 0 ? (
                 <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-                  {["S", "A", "B", "C", "D", "F"].map(g => {
-                    const count = sessions.filter(s => s.grade === g).length;
+                  {["A", "B", "C", "D", "F"].map(g => {
+                    const count = sessions.filter(s => sessionGrade(s) === g).length;
                     if (count === 0) return null;
                     return (
                       <div key={g} style={{ textAlign: "center", minWidth: 48 }}>
@@ -468,12 +498,12 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                       </td>
                       <td style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>{MODE_LABEL[s.mode] || s.mode}</td>
                       <td style={{ padding: "12px 14px" }}>
-                        {s.grade && (
-                          <span style={{ background: GRADE_BG[s.grade] || "#F3F4F6", color: GRADE_COLOR[s.grade] || "#6B7280", fontWeight: 800, fontSize: 14, padding: "3px 10px", borderRadius: 20 }}>{s.grade}</span>
+                        {sessionGrade(s) && (
+                          <span style={{ background: GRADE_BG[sessionGrade(s)!] || "#F3F4F6", color: GRADE_COLOR[sessionGrade(s)!] || "#6B7280", fontWeight: 800, fontSize: 14, padding: "3px 10px", borderRadius: 20 }}>{sessionGrade(s)}</span>
                         )}
                       </td>
                       <td style={{ padding: "12px 14px", fontSize: 13, fontWeight: 600, color: "#374151" }}>
-                        {s.score_total ? Math.round(s.score_total) : "—"}
+                        {sessionScoreV3(s) > 0 ? `${sessionScoreV3(s).toFixed(1)} / 5` : "—"}
                       </td>
                       <td style={{ padding: "12px 14px", fontSize: 12, color: "#9CA3AF" }}>{formatDate(s.created_at)}</td>
                       <td style={{ padding: "12px 14px" }}>
@@ -712,30 +742,41 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
                   <h3 style={{ margin: 0, color: BRAND.primary, fontSize: 18 }}>{selectedSession.topic}</h3>
                   <p style={{ margin: "4px 0 0", color: "#9CA3AF", fontSize: 12 }}>{formatDate(selectedSession.created_at)}</p>
                 </div>
-                {selectedSession.grade && (
-                  <span style={{ background: GRADE_BG[selectedSession.grade] || "#F3F4F6", color: GRADE_COLOR[selectedSession.grade] || "#6B7280", fontWeight: 800, fontSize: 20, padding: "4px 16px", borderRadius: 24 }}>
-                    {selectedSession.grade}
+                {sessionGrade(selectedSession) && (
+                  <span style={{ background: GRADE_BG[sessionGrade(selectedSession)!] || "#F3F4F6", color: GRADE_COLOR[sessionGrade(selectedSession)!] || "#6B7280", fontWeight: 800, fontSize: 20, padding: "4px 16px", borderRadius: 24 }}>
+                    {sessionGrade(selectedSession)}
                   </span>
                 )}
               </div>
-              {[
-                ["概念理解度", selectedSession.score_knowledge_fidelity],
-                ["構造整合度", selectedSession.score_structural_integrity],
-                ["仮説生成力", selectedSession.score_hypothesis_generation],
-                ["思考深度",   selectedSession.score_thinking_depth],
-              ].map(([label, val], i) => {
-                const v = (val as number) ?? 0;
-                return (
-                  <div key={i} style={{ marginBottom: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                      <span>{label}</span><span style={{ fontWeight: 700 }}>{Math.round(v)}</span>
+              {(() => {
+                const ss = selectedSession;
+                const hasV3 = ss.score_completeness != null;
+                const dims = hasV3 ? [
+                  { label: "網羅性", val: ss.score_completeness ?? 0 },
+                  { label: "深さ", val: ss.score_depth_v3 ?? 0 },
+                  { label: "明晰さ", val: ss.score_clarity_v3 ?? 0 },
+                  { label: "論理構造", val: ss.score_structural_coherence_v3 ?? 0 },
+                  { label: "教育的洞察", val: ss.score_pedagogical_insight ?? 0 },
+                ] : [
+                  { label: "概念理解度", val: ss.score_knowledge_fidelity != null ? (ss.score_knowledge_fidelity / 100) * 5 : 0 },
+                  { label: "構造整合度", val: ss.score_structural_integrity != null ? (ss.score_structural_integrity / 100) * 5 : 0 },
+                  { label: "仮説生成力", val: ss.score_hypothesis_generation != null ? (ss.score_hypothesis_generation / 100) * 5 : 0 },
+                  { label: "思考深度", val: ss.score_thinking_depth != null ? (ss.score_thinking_depth / 100) * 5 : 0 },
+                ];
+                return dims.map((d, i) => {
+                  const scoreColor = d.val >= 4.0 ? "#10B981" : d.val >= 3.0 ? BRAND.teal : d.val >= 2.0 ? "#F59E0B" : "#EF4444";
+                  return (
+                    <div key={i} style={{ marginBottom: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                        <span>{d.label}</span><span style={{ fontWeight: 700, color: scoreColor }}>{d.val.toFixed(1)} / 5.0</span>
+                      </div>
+                      <div style={{ background: "#E5E7EB", borderRadius: 4, height: 8 }}>
+                        <div style={{ width: `${(d.val / 5) * 100}%`, background: scoreColor, height: "100%", borderRadius: 4 }} />
+                      </div>
                     </div>
-                    <div style={{ background: "#E5E7EB", borderRadius: 4, height: 8 }}>
-                      <div style={{ width: `${v}%`, background: BRAND.teal, height: "100%", borderRadius: 4 }} />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
               {selectedSession.key_concepts && selectedSession.key_concepts.length > 0 && (
                 <div style={{ marginTop: 16 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8 }}>教えた概念</div>
@@ -748,25 +789,39 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
               )}
               {/* Session Feedback Summary */}
               {(() => {
-                const scores = [selectedSession.score_knowledge_fidelity, selectedSession.score_structural_integrity, selectedSession.score_hypothesis_generation, selectedSession.score_thinking_depth].filter((v): v is number => v != null);
+                const ss = selectedSession;
+                const hasV3 = ss.score_completeness != null;
+                const allDims = hasV3
+                  ? [
+                    { label: "網羅性", val: ss.score_completeness ?? 0 },
+                    { label: "深さ", val: ss.score_depth_v3 ?? 0 },
+                    { label: "明晰さ", val: ss.score_clarity_v3 ?? 0 },
+                    { label: "論理構造", val: ss.score_structural_coherence_v3 ?? 0 },
+                    { label: "教育的洞察", val: ss.score_pedagogical_insight ?? 0 },
+                  ]
+                  : [
+                    { label: "概念理解度", val: ss.score_knowledge_fidelity ?? 0 },
+                    { label: "構造整合度", val: ss.score_structural_integrity ?? 0 },
+                    { label: "仮説生成力", val: ss.score_hypothesis_generation ?? 0 },
+                    { label: "思考深度", val: ss.score_thinking_depth ?? 0 },
+                  ];
+                const scores = allDims.filter(d => d.val > 0);
                 if (scores.length === 0) return null;
-                const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-                const best = [
-                  { label: "概念理解度", val: selectedSession.score_knowledge_fidelity ?? 0 },
-                  { label: "構造整合度", val: selectedSession.score_structural_integrity ?? 0 },
-                  { label: "仮説生成力", val: selectedSession.score_hypothesis_generation ?? 0 },
-                  { label: "思考深度", val: selectedSession.score_thinking_depth ?? 0 },
-                ].filter(d => d.val > 0).sort((a, b) => b.val - a.val);
+                // Normalize to v3 scale
+                const avg = hasV3
+                  ? scores.reduce((a, d) => a + d.val, 0) / scores.length
+                  : (scores.reduce((a, d) => a + d.val, 0) / scores.length / 100) * 5;
+                const best = [...scores].sort((a, b) => b.val - a.val);
                 const cn = savedChar || "AI";
                 return (
-                  <div style={{ marginTop: 16, padding: "12px 14px", background: avg >= 70 ? "#F0FDF4" : avg >= 45 ? "#FFFBEB" : "#FEF2F2", borderRadius: 12, border: `1px solid ${avg >= 70 ? "#BBF7D0" : avg >= 45 ? "#FDE68A" : "#FECACA"}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: avg >= 70 ? "#166534" : avg >= 45 ? "#92400E" : "#991B1B", marginBottom: 6 }}>
+                  <div style={{ marginTop: 16, padding: "12px 14px", background: avg >= 3.5 ? "#F0FDF4" : avg >= 2.0 ? "#FFFBEB" : "#FEF2F2", borderRadius: 12, border: `1px solid ${avg >= 3.5 ? "#BBF7D0" : avg >= 2.0 ? "#FDE68A" : "#FECACA"}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: avg >= 3.5 ? "#166534" : avg >= 2.0 ? "#92400E" : "#991B1B", marginBottom: 6 }}>
                       {cn}からのフィードバック
                     </div>
                     <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>
-                      {avg >= 70
-                        ? `${best[0]?.label || "理解度"}がとても高いセッションでした！${best.length > 1 && best[best.length - 1].val < 60 ? `${best[best.length - 1].label}をもう少し意識するとさらに良くなりそうです。` : "この調子で続けましょう！"}`
-                        : avg >= 45
+                      {avg >= 3.5
+                        ? `${best[0]?.label || "理解度"}がとても高いセッションでした！${best.length > 1 && best[best.length - 1].val < (hasV3 ? 3.0 : 60) ? `${best[best.length - 1].label}をもう少し意識するとさらに良くなりそうです。` : "この調子で続けましょう！"}`
+                        : avg >= 2.0
                         ? `着実に理解が進んでいます。${best[0]?.label || ""}が強みです。${best.length > 1 ? `${best[best.length - 1].label}を重点的に教えるとレベルアップできそうです。` : "もう一度教えてみましょう！"}`
                         : `まだ伸びしろがたくさんあります！もう一度ゆっくり教えてみてください。${best[0] ? `${best[0].label}は良いスタートです。` : ""}`
                       }

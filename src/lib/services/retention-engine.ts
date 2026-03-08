@@ -58,8 +58,7 @@ export const ACHIEVEMENTS: Achievement[] = [
 
   // Mastery achievements
   { id: "first_a", title: "A評価獲得", description: "初めてA評価を達成", emoji: "💯", category: "mastery", tier: "silver", condition: (s) => s.gradeACounts >= 1 },
-  { id: "first_s", title: "S評価達成", description: "初めてS評価を達成", emoji: "🌟", category: "mastery", tier: "gold", condition: (s) => s.gradeSCount >= 1 },
-  { id: "high_avg", title: "安定のハイスコア", description: "平均スコア80以上", emoji: "📈", category: "mastery", tier: "gold", condition: (s) => s.avgScore >= 80 && s.totalSessions >= 5 },
+  { id: "high_avg", title: "安定のハイスコア", description: "平均スコア4.0以上", emoji: "📈", category: "mastery", tier: "gold", condition: (s) => s.avgScore >= 4.0 && s.totalSessions >= 5 },
   { id: "perfect_streak", title: "連続A評価", description: "5回連続でA評価以上", emoji: "✨", category: "mastery", tier: "platinum", condition: (s) => s.consecutiveHighScores >= 5 },
 
   // Exploration achievements
@@ -159,8 +158,8 @@ export function calculateEngagementScore(stats: UserStats): {
   const sessionsPerWeek = stats.totalDays > 0 ? (stats.totalSessions / stats.totalDays) * 7 : 0;
   factors.frequency = Math.min(25, sessionsPerWeek * 5);
 
-  // Performance (0-25): average score
-  factors.performance = Math.min(25, (stats.avgScore / 100) * 25);
+  // Performance (0-25): average score (v3: 0-5 scale)
+  factors.performance = Math.min(25, (stats.avgScore / 5) * 25);
 
   // Diversity (0-25): variety of topics and modes
   factors.diversity = Math.min(25, (stats.uniqueTopics * 3 + stats.modesUsed.size * 3));

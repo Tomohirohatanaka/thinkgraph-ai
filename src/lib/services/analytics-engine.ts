@@ -217,21 +217,22 @@ export function computeGrowth(sessions: ProfileEntry[]): GrowthMetrics {
 
   const recentDelta = avgRecent - avgPrev;
 
+  // Thresholds scaled for 0-5 range (v3)
   const velocityTrend: GrowthMetrics["velocityTrend"] =
-    recentDelta > 5 ? "accelerating" :
-    recentDelta > -2 ? "steady" :
-    recentDelta > -8 ? "decelerating" : "stalled";
+    recentDelta > 0.25 ? "accelerating" :
+    recentDelta > -0.1 ? "steady" :
+    recentDelta > -0.4 ? "decelerating" : "stalled";
 
   const scoreTrend: GrowthMetrics["scoreTrend"] =
-    avgSecond > avgFirst + 3 ? "improving" :
-    avgSecond < avgFirst - 3 ? "declining" : "stable";
+    avgSecond > avgFirst + 0.15 ? "improving" :
+    avgSecond < avgFirst - 0.15 ? "declining" : "stable";
 
   const projectedScore = avgRecent + recentDelta * 0.5;
   const projectedGrade =
-    projectedScore >= 90 ? "S" :
-    projectedScore >= 80 ? "A" :
-    projectedScore >= 60 ? "B" :
-    projectedScore >= 45 ? "C" : "D";
+    projectedScore >= 4.0 ? "A" :
+    projectedScore >= 3.0 ? "B" :
+    projectedScore >= 2.0 ? "C" :
+    projectedScore >= 1.0 ? "D" : "F";
 
   // Weekly growth rate
   const dates = sorted.map((s) => new Date(s.date).getTime());
@@ -278,24 +279,14 @@ export function detectMilestones(sessions: ProfileEntry[]): Milestone[] {
     }
   }
 
-  // First high grade
-  const firstA = sorted.find((s) => s.score >= 80);
+  // First high grade (v3: A ≥ 4.0)
+  const firstA = sorted.find((s) => s.score >= 4.0);
   if (firstA) {
     milestones.push({
       type: "grade",
       label: "はじめてのA評価",
       achievedAt: firstA.date,
       value: firstA.score,
-    });
-  }
-
-  const firstS = sorted.find((s) => s.score >= 90);
-  if (firstS) {
-    milestones.push({
-      type: "grade",
-      label: "はじめてのS評価",
-      achievedAt: firstS.date,
-      value: firstS.score,
     });
   }
 

@@ -62,25 +62,25 @@ export default function CharacterGrowthTimeline({
       });
     }
 
-    // Score achievements
-    const highScores = profile.filter(p => p.score >= 80);
+    // Score achievements (v3: 0-5 scale, A ≥ 4.0)
+    const highScores = profile.filter(p => p.score >= 4.0);
     if (highScores.length >= 1) {
       items.push({
         type: "achievement",
         label: "教え上手",
-        detail: "初めて80点以上を獲得",
+        detail: "初めてA評価 (4.0以上) を獲得",
         icon: "🏆",
         sessionIndex: profile.length - profile.indexOf(highScores[0]),
         color: "#F59E0B",
       });
     }
 
-    const perfectScores = profile.filter(p => p.score >= 95);
+    const perfectScores = profile.filter(p => p.score >= 4.75);
     if (perfectScores.length >= 1) {
       items.push({
         type: "achievement",
         label: "完璧な教師",
-        detail: "95点以上を獲得！",
+        detail: "4.75以上を獲得！",
         icon: "💎",
         sessionIndex: profile.length - profile.indexOf(perfectScores[0]),
         color: "#8B5CF6",
@@ -276,7 +276,7 @@ export default function CharacterGrowthTimeline({
         </div>
         <div style={{ flex: 1, textAlign: "center" }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: "#22C55E" }}>
-            {profile.length > 0 ? Math.round(profile.reduce((s, p) => s + p.score, 0) / profile.length) : 0}
+            {profile.length > 0 ? (profile.reduce((s, p) => s + p.score, 0) / profile.length).toFixed(1) : "0.0"}
           </div>
           <div style={{ fontSize: 10, color: "#999" }}>平均スコア</div>
         </div>
