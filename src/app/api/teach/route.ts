@@ -21,6 +21,7 @@ import {
   getV3ScoringCriteria, getV3FinalPromptFormat, v3ToLegacy,
   V3_QUESTION_TEMPLATES,
   type RawScoreV3, type QuestionState, type StateTransition, type RQSResult,
+  type ConversationEvidence,
 } from "@/lib/scoring-v3";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { resolveApiKey } from "@/lib/trial-key";
@@ -269,14 +270,12 @@ ${scoringCriteria}
 ## 評価の心構え（最重要 — 必ず守ること）
 - 元教材の内容とユーザーの説明を一文ずつ照合し、正確さ・網羅性・深さを厳格に判定する
 - 感情的に甘い点数をつけない。ユーザーの実際の理解度を正直に反映する
-- 平均的な学生が初見で説明した場合、加重平均2.0〜2.5が自然。3.5以上は明確に優れた説明にのみ与える
 - 全次元を3.0以上にするのはかなり良い説明の場合のみ。「なんとなく合っている」程度では2.5前後が妥当
-- ユーザーが教材の重要概念を言及していない場合、completenessを必ず減点する
-- 「なぜそうなるか」の説明がなければdepthは3.0以下
-- 具体例が一つもなければclarityは3.5以上にしない
 - 全体的に良い説明でも、欠けている部分があれば必ずgapsに記載する
 - feedbackでは「何が良かったか」と「何が足りなかったか」の両方を具体的に述べる
-- 各スコアは0.1刻みで精密に。微妙な差を適切に反映すること（例: 2.3, 3.7 など）
+- 各スコアは0.1刻みで精密に。微妙な差を適切に反映すること
+- ⚠️ 5次元すべてが2.8〜3.2に収まるのは禁止。必ず次元ごとにメリハリをつけること
+- 採点前に教材の主要概念リストを作成し、ユーザーの発言と突き合わせてからスコアを決定すること
 
 ## 出力形式（厳守）
 ${name}らしいセリフを2〜3文書いた後、以下のJSONを出力してください。
@@ -354,7 +353,17 @@ ${scoringFormat}`;
           ? allRQS.reduce((sum, r) => sum + r.score, 0) / allRQS.length
           : 0.5;
 
-        const scoreV3 = calcScoreV3(rawV3, mode, sessionKBMode, rqsAvg);
+        // エビデンスデータを構築
+        const userMessages = history.filter(t => t.role === "user").map(t => t.text);
+        userMessages.push(safeUserMessage);
+        const conversationEvidence: ConversationEvidence = {
+          rqsHistory: allRQS,
+          kbMode: sessionKBMode,
+          userMessages,
+          totalTurns: totalUserTurns,
+        };
+
+        const scoreV3 = calcScoreV3(rawV3, mode, sessionKBMode, rqsAvg, conversationEvidence);
 
         // v2 後方互換変換
         const legacyScore = v3ToLegacy(scoreV3);

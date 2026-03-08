@@ -143,29 +143,190 @@ function checkConjunctive(scores: RawScoreV3, grade: string): boolean {
   return true;
 }
 
+// ─── エビデンスベース・スコア補正 ─────────────────────────────
+//
+// LLMは中央値バイアス（3.0付近に収束）を持つ。
+// RQSデータ・KB検出・会話メトリクスを用いて、
+// エビデンスに基づくスコアの上限キャップと補正を行う。
+
+export interface ConversationEvidence {
+  rqsHistory: { score: number; signals: { sentence_quality: number; relevance: number; info_content: number; elaboration: number } }[];
+  kbMode: "building" | "telling" | "mixed";
+  userMessages: string[];  // ユーザーの全発言
+  totalTurns: number;
+}
+
+function clampScore(val: number, min: number, max: number): number {
+  return Math.round(Math.max(min, Math.min(max, val)) * 10) / 10;
+}
+
+/**
+ * LLMスコアをエビデンスに基づいて補正する。
+ * - RQS平均が低い → depth/clarity/structural_coherence にキャップ
+ * - KB=telling → pedagogical_insight にキャップ
+ * - ユーザー発言が短い → completeness/depth にキャップ
+ * - 全体的に平坦なスコア（分散が小さい）→ RQSベースで再分配
+ */
+export function adjustScoresWithEvidence(
+  raw: RawScoreV3,
+  evidence: ConversationEvidence
+): RawScoreV3 {
+  const adjusted = { ...raw };
+
+  // === 1. RQSベースのキャップ ===
+  const rqsScores = evidence.rqsHistory.map(r => r.score);
+  const rqsAvg = rqsScores.length > 0
+    ? rqsScores.reduce((a, b) => a + b, 0) / rqsScores.length
+    : 0.5;
+
+  // RQS信号の平均
+  const avgSignals = evidence.rqsHistory.length > 0 ? {
+    sentence_quality: evidence.rqsHistory.reduce((s, r) => s + r.signals.sentence_quality, 0) / evidence.rqsHistory.length,
+    relevance: evidence.rqsHistory.reduce((s, r) => s + r.signals.relevance, 0) / evidence.rqsHistory.length,
+    info_content: evidence.rqsHistory.reduce((s, r) => s + r.signals.info_content, 0) / evidence.rqsHistory.length,
+    elaboration: evidence.rqsHistory.reduce((s, r) => s + r.signals.elaboration, 0) / evidence.rqsHistory.length,
+  } : null;
+
+  if (avgSignals) {
+    // info_content が低い → depth キャップ（why-informative が少ない = 深い理解がない）
+    if (avgSignals.info_content < 0.3) {
+      adjusted.depth = clampScore(adjusted.depth, 1.0, 2.5);
+    } else if (avgSignals.info_content < 0.5) {
+      adjusted.depth = clampScore(adjusted.depth, 1.0, 3.2);
+    }
+
+    // sentence_quality が低い → clarity キャップ
+    if (avgSignals.sentence_quality < 0.3) {
+      adjusted.clarity = clampScore(adjusted.clarity, 1.0, 2.5);
+    } else if (avgSignals.sentence_quality < 0.5) {
+      adjusted.clarity = clampScore(adjusted.clarity, 1.0, 3.2);
+    }
+
+    // relevance が低い → structural_coherence キャップ
+    if (avgSignals.relevance < 0.3) {
+      adjusted.structural_coherence = clampScore(adjusted.structural_coherence, 1.0, 2.5);
+    } else if (avgSignals.relevance < 0.5) {
+      adjusted.structural_coherence = clampScore(adjusted.structural_coherence, 1.0, 3.2);
+    }
+
+    // elaboration が低い → completeness キャップ
+    if (avgSignals.elaboration < 0.3) {
+      adjusted.completeness = clampScore(adjusted.completeness, 1.0, 2.5);
+    } else if (avgSignals.elaboration < 0.5) {
+      adjusted.completeness = clampScore(adjusted.completeness, 1.0, 3.2);
+    }
+  }
+
+  // === 2. KB mode ベースの補正 ===
+  if (evidence.kbMode === "telling") {
+    // Knowledge-Telling: 丸暗記型 → pedagogical_insight と depth にキャップ
+    adjusted.pedagogical_insight = clampScore(adjusted.pedagogical_insight, 1.0, 2.5);
+    adjusted.depth = clampScore(adjusted.depth, 1.0, Math.min(adjusted.depth, 3.0));
+  }
+
+  // === 3. ユーザー発言量ベースの補正 ===
+  const userMsgs = evidence.userMessages;
+  const totalChars = userMsgs.reduce((sum, m) => sum + m.length, 0);
+  const avgMsgLen = userMsgs.length > 0 ? totalChars / userMsgs.length : 0;
+
+  // 発言が非常に短い（平均30文字未満）→ 高スコアは不可能
+  if (avgMsgLen < 30) {
+    const cap = 2.0;
+    adjusted.completeness = clampScore(adjusted.completeness, 1.0, cap);
+    adjusted.depth = clampScore(adjusted.depth, 1.0, cap);
+    adjusted.clarity = clampScore(adjusted.clarity, 1.0, cap + 0.5);
+    adjusted.structural_coherence = clampScore(adjusted.structural_coherence, 1.0, cap);
+    adjusted.pedagogical_insight = clampScore(adjusted.pedagogical_insight, 1.0, cap);
+  } else if (avgMsgLen < 60) {
+    // やや短い → 中程度のキャップ
+    const cap = 3.0;
+    adjusted.completeness = clampScore(adjusted.completeness, 1.0, cap);
+    adjusted.depth = clampScore(adjusted.depth, 1.0, cap);
+  }
+
+  // ターン数が少ない（2ターン以下）→ 十分な説明ができていないはず
+  if (evidence.totalTurns <= 2) {
+    const cap = 2.5;
+    adjusted.completeness = clampScore(adjusted.completeness, 1.0, cap);
+    adjusted.structural_coherence = clampScore(adjusted.structural_coherence, 1.0, cap);
+  }
+
+  // === 4. 全体RQSとの整合性チェック ===
+  // RQS平均が非常に低い場合、全体スコアにキャップ
+  if (rqsAvg < 0.2) {
+    const globalCap = 2.0;
+    for (const dim of Object.keys(adjusted) as V3Dimension[]) {
+      adjusted[dim] = clampScore(adjusted[dim], 1.0, globalCap);
+    }
+  } else if (rqsAvg < 0.35) {
+    const globalCap = 2.8;
+    for (const dim of Object.keys(adjusted) as V3Dimension[]) {
+      adjusted[dim] = clampScore(adjusted[dim], 1.0, globalCap);
+    }
+  }
+
+  // === 5. 中央値バイアス補正 ===
+  // 全次元が2.8-3.2に集中している場合（分散 < 0.04）、
+  // RQSデータに基づいて分散を広げる
+  const values = Object.values(adjusted);
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+
+  if (variance < 0.04 && evidence.rqsHistory.length > 0 && avgSignals) {
+    // 分散が小さすぎる → RQSシグナルに基づいて再分配
+    // RQSシグナルとの相関: info_content→depth, sentence_quality→clarity,
+    // relevance→structural_coherence, elaboration→completeness
+    const signalMap: Record<V3Dimension, "info_content" | "sentence_quality" | "relevance" | "elaboration"> = {
+      depth: "info_content",
+      clarity: "sentence_quality",
+      structural_coherence: "relevance",
+      completeness: "elaboration",
+      pedagogical_insight: "info_content",
+    };
+
+    for (const [dim, signalKey] of Object.entries(signalMap)) {
+      const signal = avgSignals[signalKey];
+      // シグナルが0.5を下回る分だけ、スコアを下方修正
+      const delta = (signal - 0.5) * 1.5;  // -0.75 ~ +0.75
+      adjusted[dim as V3Dimension] = clampScore(
+        adjusted[dim as V3Dimension] + delta,
+        1.0, 5.0
+      );
+    }
+  }
+
+  return adjusted;
+}
+
 // ─── v3 スコア計算 ──────────────────────────────────────────
 
 export function calcScoreV3(
   raw: RawScoreV3,
   mode: string,
   kbMode: "building" | "telling" | "mixed" = "mixed",
-  rqsAvg = 0.5
+  rqsAvg = 0.5,
+  evidence?: ConversationEvidence
 ): ScoreV3 {
+  // エビデンスベース補正（データがある場合のみ）
+  const effectiveRaw = evidence
+    ? adjustScoresWithEvidence(raw, evidence)
+    : raw;
+
   const weights = getV3Weights(mode);
 
   // 加重平均
   let weighted = 0;
   for (const [dim, w] of Object.entries(weights)) {
-    weighted += raw[dim as V3Dimension] * w;
+    weighted += effectiveRaw[dim as V3Dimension] * w;
   }
   weighted = Math.round(weighted * 100) / 100;
 
   const grade = getGradeV3(weighted);
-  const conjunctive_pass = checkConjunctive(raw, grade);
-  const insight = generateInsightV3(raw, grade, kbMode);
+  const conjunctive_pass = checkConjunctive(effectiveRaw, grade);
+  const insight = generateInsightV3(effectiveRaw, grade, kbMode);
 
   return {
-    raw,
+    raw: effectiveRaw,
     weighted,
     grade,
     conjunctive_pass,
@@ -529,10 +690,8 @@ pedagogical_insight（教育的洞察）:
   1.0: 教材の丸暗記を繰り返すだけ。自分の言葉で説明できない
 
 ## 採点の厳格ルール（必ず守ること）
-- 全次元の平均が3.5を超えることは稀であるべき。明確に優れた説明にのみ高得点を与える
-- 「なんとなく合っている」は2.5〜3.0。「正確に説明できている」が3.5以上の条件
 - 教材に書いてある重要概念をユーザーが言及していない場合、completenessは必ず減点する
-- 「なぜ？」に答えられていなければdepthは3.0以下にする
+- 「なぜそうなるか」の説明がなければdepthは3.0以下にする
 - 具体例が一つもなければclarityは3.5以上にしない
 - 概念間の関係を説明していなければstructural_coherenceは3.0以下にする
 - 自分の言葉で噛み砕いた説明がなければpedagogical_insightは3.0以下にする
@@ -540,7 +699,31 @@ pedagogical_insight（教育的洞察）:
 - 純粋にユーザーの応答品質と内容の正確さで評価すること
 - 教材に書いてある内容と一文ずつ照合し、事実関係の正誤も必ずチェックすること
 - 「よく頑張った」等の感情的配慮でスコアを水増ししないこと。正直かつ厳格に評価する
-- 0.1刻みの精度を活用し、微妙な差を適切に反映すること（例: 3.0と3.5の間なら3.2や3.3を使う）`;
+- 0.1刻みの精度を活用し、微妙な差を適切に反映すること（例: 3.0と3.5の間なら3.2や3.3を使う）
+
+## ⚠️ 中央値バイアス禁止（最重要）
+あなたには「とりあえず3.0前後をつける」傾向がある。これは禁止する。
+各次元を独立に評価し、次元ごとに異なるスコアを出すこと。5次元すべてが2.8〜3.2に収まるのは異常。
+必ず最低1つは他より0.5以上低いスコアの次元を見つけること（その学生の弱点）。
+
+## 採点キャリブレーション例
+以下はスコアの目安。実際の会話内容を必ず照合すること。
+
+例1: ユーザーが「光合成は植物がやるやつです」「太陽の光を使います」程度の説明
+→ completeness: 1.5, depth: 1.2, clarity: 2.0, structural_coherence: 1.3, pedagogical_insight: 1.5
+（単語レベルの断片的知識。因果関係の説明なし。加重平均 ≈ 1.5）
+
+例2: ユーザーが「光合成は植物が光エネルギーを使って水とCO2からグルコースを作る反応です。葉緑体で行われます」
+→ completeness: 2.5, depth: 2.0, clarity: 3.0, structural_coherence: 2.2, pedagogical_insight: 1.8
+（基本定義は言えるが「なぜ光が必要か」「化学反応の仕組み」がない。加重平均 ≈ 2.3）
+
+例3: ユーザーが定義＋理由＋具体例を交えて説明し、質問にも的確に回答
+→ completeness: 3.5, depth: 3.2, clarity: 3.8, structural_coherence: 3.0, pedagogical_insight: 3.3
+（しっかり理解しているが、一部の概念間の繋がりが弱い。加重平均 ≈ 3.4）
+
+例4: ユーザーが教材の全概念を網羅し、因果関係を多層的に説明、比喩を使って相手に合わせた説明
+→ completeness: 4.5, depth: 4.2, clarity: 4.5, structural_coherence: 4.0, pedagogical_insight: 4.3
+（素晴らしい説明。加重平均 ≈ 4.3。ここまで到達するのは稀）`;
 }
 
 // ─── v3 質問テンプレート ────────────────────────────────────
@@ -602,7 +785,15 @@ function generateInsightV3(
 // ─── v3 最終採点プロンプトJSON形式 ──────────────────────────
 
 export function getV3FinalPromptFormat(): string {
-  return `JSON の各スコアフィールドは小数第一位まで (1.0-5.0、0.1刻み)。整数ではなく必ず小数で出力すること:
+  return `## 採点手順（この順番で思考すること）
+1. まず教材から主要概念を5-10個リストアップする
+2. ユーザーの各発言を読み、どの概念に正確に言及したかチェックする
+3. 「なぜ？」に答えている箇所、具体例がある箇所を特定する
+4. 上記のチェック結果に基づいて各次元のスコアを決定する
+5. 5次元のスコアを見直し、全部が似たスコア（±0.3以内）なら弱い次元を下方修正する
+
+JSON の各スコアフィールドは小数第一位まで (1.0-5.0、0.1刻み)。整数ではなく必ず小数で出力すること。
+注意: 5次元すべてが同じようなスコアになるのは不自然。必ずメリハリをつけること。
 
 {
   "completeness": 2.8,
