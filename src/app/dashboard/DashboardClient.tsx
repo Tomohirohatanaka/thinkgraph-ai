@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -91,12 +92,12 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
   user: User; sessions: Session[]; stats: Stats | null; concepts: Concept[];
 }) {
   const router = useRouter();
-  const supabase = createClient();
+  const _supabase = createClient();
   const [tab, setTab] = useState<"overview" | "history" | "knowledge" | "settings">("overview");
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
   // Settings state
-  const [apiKey, setApiKey] = useState("");
+  const [_apiKey, setApiKey] = useState("");
   const [apiInput, setApiInput] = useState("");
   const [savedChar, setSavedChar] = useState<string>("");
   const [showKeySaved, setShowKeySaved] = useState(false);
@@ -104,7 +105,7 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
 
   // Streak state (loaded from localStorage)
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastDate: "", totalDays: 0 });
-  const [charEmoji, setCharEmoji] = useState("");
+  const [_charEmoji, setCharEmoji] = useState("");
   const [charColor, setCharColor] = useState("");
   const [charId, setCharId] = useState("");
 
@@ -203,9 +204,9 @@ export default function DashboardClient({ user, sessions, stats, concepts }: {
       {/* HEADER */}
       <header style={{ background: BRAND.primary, color: "white", padding: "0 20px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <a href="/" style={{ textDecoration: "none", fontSize: 18, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
+          <Link href="/" style={{ textDecoration: "none", fontSize: 18, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
             teach<span style={{ color: BRAND.accent }}>AI</span>
-          </a>
+          </Link>
           <span style={{ fontSize: 12, color: "#90B8C8", fontWeight: 500, padding: "2px 8px", background: "rgba(255,255,255,0.08)", borderRadius: 6 }}>ダッシュボード</span>
         </div>
         <div className="dash-header-actions">

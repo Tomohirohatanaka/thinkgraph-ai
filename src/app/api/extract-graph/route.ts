@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { corsResponse } from "@/lib/api";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { resolveApiKey } from "@/lib/trial-key";
 
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const { conversation, domain, apiKey } = await req.json();
 
   const resolved = resolveApiKey(apiKey);
-  if (!resolved) return NextResponse.json({ error: 'API key required' }, { status: 400 });
+  if (!resolved) return NextResponse.json({ error: 'APIキーが必要です' }, { status: 400 });
   const effectiveKey = resolved.key;
   const provider = detectProvider(effectiveKey);
   const convText = conversation

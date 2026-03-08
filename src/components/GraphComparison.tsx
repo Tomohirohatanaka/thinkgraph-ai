@@ -143,7 +143,7 @@ export default function GraphComparison({
   topic,
   coreText,
   turns,
-  mastered,
+  mastered: _mastered,
   accentColor,
 }: {
   apiKey: string;

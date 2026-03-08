@@ -26,8 +26,8 @@ export default function GraphView({ graph, highlight }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const W = canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-    const H = canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
     const w = canvas.offsetWidth;
     const h = canvas.offsetHeight;

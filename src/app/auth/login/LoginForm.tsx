@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import Link from "next/link";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getBaseUrl } from "@/lib/auth-url";
@@ -107,15 +108,15 @@ function LoginFormInner() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <Link href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
-        </a>
+        </Link>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <a href="/auth/signup" style={{
+          <Link href="/auth/signup" style={{
             padding: "10px 22px", fontSize: 13, fontWeight: 700,
             color: "#fff", textDecoration: "none", borderRadius: 10,
             background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
-          }}>無料で始める</a>
+          }}>無料で始める</Link>
         </div>
       </nav>
 
@@ -263,12 +264,12 @@ function LoginFormInner() {
 
           <p style={{ textAlign: "center", marginTop: 24, fontSize: 13, color: B.sub }}>
             アカウントをお持ちでない方は{" "}
-            <a
+            <Link
               href={`/auth/signup?redirectTo=${encodeURIComponent(redirectTo)}`}
               style={{ color: B.teal, fontWeight: 700, textDecoration: "none" }}
             >
               新規登録
-            </a>
+            </Link>
           </p>
         </div>
       </div>

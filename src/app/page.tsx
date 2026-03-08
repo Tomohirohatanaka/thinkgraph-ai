@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { convertV3toV2, V3_WEIGHTS, V3Dimension } from "@/lib/scoring-v3";
 import GraphComparison from "@/components/GraphComparison";
 import CharacterGrowthTimeline from "@/components/CharacterGrowthTimeline";
 
@@ -37,6 +39,7 @@ interface SessionResult {
   grade?: "S" | "A" | "B" | "C" | "D" | "F";
   insight?: string;
   score_breakdown?: { coverage: number; depth: number; clarity: number; structural_coherence: number; spontaneity: number; total: number };
+  improvement_suggestions?: string[];
   // v3 fields
   score_v3?: ScoreV3Data;
   scoring_version?: "v2" | "v3";
@@ -408,20 +411,6 @@ function useSynth() {
 }
 
 // ─── UI Components ────────────────────────────────────────────
-function Bars({ color }: { color: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 3, height: 24 }}>
-      {[0.5, 1.0, 0.7, 1.3, 0.6, 1.1, 0.8].map((h, i) => (
-        <div key={i} style={{
-          width: 3, borderRadius: 2, background: color,
-          height: `${h * 16}px`,
-          animation: `bar ${0.5 + i * 0.07}s ease-in-out infinite alternate`,
-        }} />
-      ))}
-    </div>
-  );
-}
-
 function Ring({ value, color, label, size = 64 }: { value: number; color: string; label: string; size?: number }) {
   const r = size / 2 - 6, c = 2 * Math.PI * r;
   const offset = c - (Math.max(0, Math.min(100, value)) / 100) * c;
@@ -456,9 +445,8 @@ function Avatar({ char, size = 44, pulse, expression }: { char: Character; size?
     <div className="avatar-breathe" style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={pulse ? "avatar-glow" : ""} style={{
         filter: pulse ? `drop-shadow(0 0 ${size * 0.15}px ${char.color}60)` : `drop-shadow(0 2px ${size * 0.08}px ${char.color}30)`,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "--glow-color": `${char.color}40`,
-      } as any}>
+      } as React.CSSProperties}>
         <defs>
           <radialGradient id={`${uid}_bg`} cx="50%" cy="40%" r="55%">
             <stop offset="0%" stopColor={`${char.color}35`} />
@@ -884,8 +872,6 @@ function CharDetail({
   onEditChar?: () => void;
 }) {
   const n = profile.length;
-  const idx = stageIndex(char, n);
-  const label = stageLabel(char, n);
   const next = nextThreshold(char, n);
   const cc = char.color;
 
@@ -1055,12 +1041,12 @@ export default function App() {
   const [skillMap, setSkillMap] = useState<SkillMap | null>(null);
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillError, setSkillError] = useState("");
-  const [proactive, setProactive] = useState<{
+  const [_proactive, setProactive] = useState<{
     message: string;
     suggestions: { topic: string; reason: string; emoji: string }[];
     mood: string;
   } | null>(null);
-  const [knowledgeGraph, setKnowledgeGraph] = useState<Record<string, unknown> | null>(null);
+  const [_knowledgeGraph, setKnowledgeGraph] = useState<Record<string, unknown> | null>(null);
 
   // セッション状態
   const [leadingPenalty, setLeadingPenalty] = useState(0);
@@ -1118,7 +1104,7 @@ export default function App() {
 
   // ── Supabase同期関数（アカウントベースのデータ管理）──────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function syncFromSupabase(user: any) {
+  async function syncFromSupabase(_user: any) {
     try {
       const res = await fetch("/api/user/sync");
       const data = await res.json();
@@ -1260,6 +1246,7 @@ export default function App() {
     } catch { /* ignore */ }
 
     return () => { subscription?.unsubscribe(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1361,10 +1348,16 @@ export default function App() {
       const data = await res.json();
 
       if (data.error) {
-        const fb = "申し訳ありません、エラーが発生しました。";
+        console.error("teach API error:", data.error);
+        const isKeyError = typeof data.error === "string" && (
+          data.error.includes("APIキー") || data.error.includes("api_key") || data.error.includes("API key") || data.error.includes("authentication")
+        );
+        const fb = isKeyError
+          ? "APIキーが無効か期限切れのようです。設定画面でAPIキーをご確認ください。"
+          : `申し訳ありません、エラーが発生しました。（${typeof data.error === "string" ? data.error : "不明なエラー"}）`;
         setTurns(prev => [...prev, { role: "ai", text: fb }]);
         setVoiceState("speaking");
-        synth.speak(fb, () => setVoiceState("idle"), getCharVoice(charRef.current));
+        synth.speak(isKeyError ? "APIキーをご確認ください。" : "エラーが発生しました。", () => setVoiceState("idle"), getCharVoice(charRef.current));
         return;
       }
 
@@ -1426,6 +1419,7 @@ export default function App() {
           grade: data.grade,
           insight: data.insight || (data.score_v3?.insight),
           score_breakdown: data.score_breakdown,
+          improvement_suggestions: Array.isArray(data.improvement_suggestions) ? data.improvement_suggestions : [],
           // v3
           score_v3: data.score_v3 || undefined,
           scoring_version: data.scoring_version,
@@ -1490,10 +1484,10 @@ export default function App() {
                 score_total: score.total,
                 grade: data.grade || null,
                 key_concepts: Array.isArray(data.mastered) ? data.mastered : [],
-                score_knowledge_fidelity: data.score_breakdown?.coverage ?? (v3r ? (v3r.completeness - 1) * 25 : null),
-                score_structural_integrity: data.score_breakdown?.structural_coherence ?? (v3r ? (v3r.structural_coherence - 1) * 25 : null),
-                score_hypothesis_generation: data.score_breakdown?.spontaneity ?? (v3r ? (v3r.pedagogical_insight - 1) * 25 : null),
-                score_thinking_depth: data.score_breakdown?.depth ?? (v3r ? (v3r.depth - 1) * 25 : null),
+                score_knowledge_fidelity: data.score_breakdown?.coverage ?? (v3r ? convertV3toV2(v3r.completeness) : null),
+                score_structural_integrity: data.score_breakdown?.structural_coherence ?? (v3r ? convertV3toV2(v3r.structural_coherence) : null),
+                score_hypothesis_generation: data.score_breakdown?.spontaneity ?? (v3r ? convertV3toV2(v3r.pedagogical_insight) : null),
+                score_thinking_depth: data.score_breakdown?.depth ?? (v3r ? convertV3toV2(v3r.depth) : null),
                 messages: turnsRef.current,
               });
             }
@@ -1511,11 +1505,16 @@ export default function App() {
       setVoiceState("speaking");
       synth.speak(aiText, () => setVoiceState("idle"), getCharVoice(charRef.current));
 
-    } catch {
-      const fb = "通信エラーが発生しました。";
+    } catch (err) {
+      console.error("teach session error:", err);
+      const msg = err instanceof Error ? err.message : "";
+      const isNetworkError = msg.includes("fetch") || msg.includes("network") || msg.includes("Failed to fetch");
+      const fb = isNetworkError
+        ? "通信エラーが発生しました。ネットワーク接続を確認してもう一度送信してください。"
+        : `エラーが発生しました。（${msg || "不明なエラー"}）`;
       setTurns(prev => [...prev, { role: "ai", text: fb }]);
       setVoiceState("speaking");
-      synth.speak(fb, () => setVoiceState("idle"), getCharVoice(charRef.current));
+      synth.speak("エラーが発生しました。", () => setVoiceState("idle"), getCharVoice(charRef.current));
     }
   }, [apiKey, synth]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1546,6 +1545,14 @@ export default function App() {
     if (!apiKey && !trialAvailable) { setShowApiModal(true); return; }
     if (!inputUrl.trim() && !inputText.trim() && !fileContent && !fileData) {
       setError("URLかテキストを入力してください"); return;
+    }
+    // テキストのみの場合、最小文字数チェック
+    if (!inputUrl.trim() && !fileData && !fileContent) {
+      const textLen = inputText.trim().length;
+      if (textLen > 0 && textLen < 20) {
+        setError("もう少し詳しく入力してください（20文字以上）。短いキーワードの場合はURLで教材を指定するか、詳しい説明文を入力してください。");
+        return;
+      }
     }
 
     // 長文テキストの場合は分割を提案
@@ -1669,6 +1676,11 @@ export default function App() {
 
   function forceEnd() {
     if (!topicRef.current || voiceState !== "idle") return;
+    const userTurnCount = turnsRef.current.filter(t => t.role === "user").length;
+    if (userTurnCount < 1) {
+      // ユーザーがまだ1回も発言していない場合は終了不可
+      return;
+    }
     const history = turnsRef.current.slice(1);
     const lastUserText = [...turnsRef.current].reverse().find(t => t.role === "user")?.text || "以上です";
     doAiTurn(topicRef.current, history, lastUserText, {
@@ -2053,7 +2065,7 @@ export default function App() {
       : (total >= 85 ? "完璧に教えられた！" : total >= 70 ? "上手に教えられた！" : total >= 50 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう");
     const hasPenalty = !isV3 && (result.leading_penalty > 0 || result.gave_up_penalty > 0);
     const gradeColor = (g?: string) =>
-      g === "S" ? "#FFD700" : g === "A" ? cc : g === "B" ? "#4ECDC4" : g === "C" ? "#F5A623" : "#FF6B9D";
+      g === "S" ? "#FFD700" : g === "A" ? cc : g === "B" ? "#4ECDC4" : g === "C" ? "#F5A623" : g === "D" ? "#FF6B9D" : g === "F" ? "#999" : "#FF6B9D";
 
     return (
       <div className="app" style={{ overflowY: "auto" }}>
@@ -2079,107 +2091,127 @@ export default function App() {
 
             {/* Score */}
             <div className="card" style={{ marginBottom: "1rem" }}>
-              {isV3 && result.score_v3 ? (
-                <>
-                  {/* v3 Score Display */}
-                  <div style={{ textAlign: "center", marginBottom: "1rem" }}>
-                    <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{displayScore}</div>
-                    <div style={{ fontSize: 13, color: "#bbb" }}>{displayMax}</div>
-                    {grade && (
-                      <div style={{
-                        display: "inline-block", padding: "2px 14px", borderRadius: 20,
-                        background: gradeColor(grade), color: grade === "S" ? "#000" : "#fff",
-                        fontSize: 14, fontWeight: 800, marginTop: "0.4rem",
-                      }}>Grade {grade}</div>
-                    )}
-                    {result.score_v3.conjunctive_pass === false && (
-                      <div style={{ fontSize: 11, color: "#FF6B9D", marginTop: "0.3rem" }}>
-                        ⚠️ 一部の次元が基準未満のため、グレードが制限されています
+              {isV3 && result.score_v3 ? (() => {
+                const modeWeights = V3_WEIGHTS[topic.mode] ?? V3_WEIGHTS.concept;
+                const dims: { key: V3Dimension; label: string; color: string }[] = [
+                  { key: "completeness", label: "網羅性", color: "#FF6B9D" },
+                  { key: "depth", label: "深さ", color: "#4ECDC4" },
+                  { key: "clarity", label: "明晰さ", color: "#45B7D1" },
+                  { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
+                  { key: "pedagogical_insight", label: "教育的洞察", color: "#E67E22" },
+                ];
+                // 重み順にソート（重要な次元が上に来る）
+                const sortedDims = [...dims].sort((a, b) => (modeWeights[b.key] ?? 0) - (modeWeights[a.key] ?? 0));
+                return (
+                  <>
+                    {/* v3 Score Display */}
+                    <div style={{ textAlign: "center", marginBottom: "1rem" }}>
+                      <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{displayScore}</div>
+                      <div style={{ fontSize: 13, color: "#bbb" }}>{displayMax}</div>
+                      {grade && (
+                        <div style={{
+                          display: "inline-block", padding: "2px 14px", borderRadius: 20,
+                          background: gradeColor(grade), color: grade === "S" ? "#000" : (grade === "F" ? "#fff" : "#fff"),
+                          fontSize: 14, fontWeight: 800, marginTop: "0.4rem",
+                        }}>Grade {grade}</div>
+                      )}
+                      {result.score_v3.conjunctive_pass === false && (
+                        <div style={{ fontSize: 11, color: "#FF6B9D", marginTop: "0.3rem" }}>
+                          ⚠️ 一部の次元が基準未満のため、グレードが制限されています
+                        </div>
+                      )}
+                    </div>
+                    {/* 5D Bars (重み順) */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                      {sortedDims.map(({ key, label, color }) => {
+                        const val = result.score_v3!.raw[key] ?? 0;
+                        const weight = modeWeights[key] ?? 0;
+                        return (
+                          <div key={key}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
+                              <span style={{ fontSize: 12, color: "#555" }}>
+                                {label}
+                                <span style={{ fontSize: 10, color: "#bbb", marginLeft: "0.3rem" }}>×{(weight * 100).toFixed(0)}%</span>
+                              </span>
+                              <span style={{ fontSize: 13, fontWeight: 800, color }}>{val} / 5</span>
+                            </div>
+                            <div style={{ height: 8, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
+                              <div style={{ width: `${(val / 5) * 100}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.8s ease" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* KB Mode & RQS & Insight */}
+                    <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 80, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.kb_mode === "building" ? "#4ECDC4" : result.score_v3.kb_mode === "telling" ? "#F5A623" : "#45B7D1" }}>
+                          {result.score_v3.kb_mode === "building" ? "📖 構築型" : result.score_v3.kb_mode === "telling" ? "📢 伝達型" : "🔄 混合型"}
+                        </div>
+                        <div style={{ fontSize: 10, color: "#bbb" }}>教え方スタイル</div>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 80, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.rqs_avg >= 0.6 ? "#4ECDC4" : result.score_v3.rqs_avg >= 0.3 ? "#F5A623" : "#FF6B9D" }}>
+                          {(result.score_v3.rqs_avg * 100).toFixed(0)}%
+                        </div>
+                        <div style={{ fontSize: 10, color: "#bbb" }}>応答品質 (RQS)</div>
+                      </div>
+                    </div>
+                    {result.insight && (
+                      <div style={{ marginTop: "0.5rem", background: `${cc}08`, borderRadius: 10, padding: "0.6rem 0.75rem" }}>
+                        <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
                       </div>
                     )}
+                  </>
+                );
+              })() : (
+                <>
+                  {/* v2 Score Display (legacy) */}
+                  <div style={{ textAlign: "center", marginBottom: "1rem" }}>
+                    <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{total}</div>
+                    {grade && (
+                      <div style={{
+                        display: "inline-block", padding: "2px 12px", borderRadius: 20,
+                        background: gradeColor(grade), color: grade === "S" ? "#000" : "#fff",
+                        fontSize: 13, fontWeight: 800, marginTop: "0.3rem",
+                      }}>Grade {grade}</div>
+                    )}
+                    <div style={{ fontSize: 11, color: "#bbb", marginTop: "0.2rem" }}>総合スコア / 100</div>
                   </div>
-                  {/* 5D Bars */}
+                  {/* 5D Bars (v2) */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                     {[
-                      { key: "completeness", label: "網羅性", color: "#FF6B9D" },
+                      { key: "coverage", label: "網羅性", color: "#FF6B9D" },
                       { key: "depth", label: "深さ", color: "#4ECDC4" },
-                      { key: "clarity", label: "明晰さ", color: "#45B7D1" },
-                      { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
-                      { key: "pedagogical_insight", label: "教育的洞察", color: "#E67E22" },
+                      { key: "clarity", label: "明瞭さ", color: "#45B7D1" },
+                      ...(result.score_breakdown ? [
+                        { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
+                        { key: "spontaneity", label: "自発性", color: "#E67E22" },
+                      ] : []),
                     ].map(({ key, label, color }) => {
-                      const val = result.score_v3!.raw[key as keyof typeof result.score_v3.raw] ?? 0;
+                      const scoreAny = result.score as unknown as Record<string, number>;
+                      const breakdownAny = result.score_breakdown as unknown as Record<string, number> | undefined;
+                      const val = key === "coverage" || key === "depth" || key === "clarity"
+                        ? scoreAny[key] ?? 0
+                        : breakdownAny?.[key] ?? 0;
                       return (
                         <div key={key}>
                           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.2rem" }}>
                             <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
-                            <span style={{ fontSize: 13, fontWeight: 800, color }}>{val} / 5</span>
+                            <span style={{ fontSize: 13, fontWeight: 800, color }}>{val}</span>
                           </div>
                           <div style={{ height: 8, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
-                            <div style={{ width: `${(val / 5) * 100}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.8s ease" }} />
+                            <div style={{ width: `${Math.max(0, Math.min(100, val))}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.8s ease" }} />
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                  {/* KB Mode & RQS */}
-                  <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
-                    <div style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.kb_mode === "building" ? "#4ECDC4" : result.score_v3.kb_mode === "telling" ? "#F5A623" : "#45B7D1" }}>
-                        {result.score_v3.kb_mode === "building" ? "📖 構築型" : result.score_v3.kb_mode === "telling" ? "📢 伝達型" : "🔄 混合型"}
-                      </div>
-                      <div style={{ fontSize: 10, color: "#bbb" }}>教え方スタイル</div>
-                    </div>
-                    <div style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: result.score_v3.rqs_avg >= 0.6 ? "#4ECDC4" : result.score_v3.rqs_avg >= 0.3 ? "#F5A623" : "#FF6B9D" }}>
-                        {(result.score_v3.rqs_avg * 100).toFixed(0)}%
-                      </div>
-                      <div style={{ fontSize: 10, color: "#bbb" }}>応答品質 (RQS)</div>
-                    </div>
-                    {result.insight && (
-                      <div style={{ flex: 2, background: `${cc}08`, borderRadius: 10, padding: "0.5rem 0.75rem", display: "flex", alignItems: "center" }}>
+                  {result.insight && (
+                    <div style={{ marginTop: "0.75rem", borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem" }}>
+                      <div style={{ background: `${cc}08`, borderRadius: 10, padding: "0.6rem 0.75rem" }}>
                         <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
                       </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* v2 Score Display (legacy) */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", flexWrap: "wrap", gap: "0.5rem", marginBottom: grade ? "1rem" : 0 }}>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 52, fontWeight: 900, color: cc, lineHeight: 1 }}>{total}</div>
-                      {grade && (
-                        <div style={{
-                          display: "inline-block", padding: "2px 12px", borderRadius: 20,
-                          background: gradeColor(grade), color: grade === "S" ? "#000" : "#fff",
-                          fontSize: 13, fontWeight: 800, marginTop: "0.3rem",
-                        }}>Grade {grade}</div>
-                      )}
-                      <div style={{ fontSize: 11, color: "#bbb", marginTop: "0.2rem" }}>総合スコア</div>
-                    </div>
-                    <Ring value={result.score.coverage} color="#FF6B9D" label="網羅性" />
-                    <Ring value={result.score.depth} color="#4ECDC4" label="深さ" />
-                    <Ring value={result.score.clarity} color="#45B7D1" label="明瞭さ" />
-                  </div>
-                  {result.score_breakdown && (
-                    <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
-                      {[
-                        { key: "structural_coherence", label: "論理構造", color: "#8E44AD" },
-                        { key: "spontaneity", label: "自発性", color: "#E67E22" },
-                      ].map(({ key, label, color }) => {
-                        const val = (result.score_breakdown as Record<string, number>)[key] ?? 0;
-                        return (
-                          <div key={key} style={{ flex: 1, background: "#fafafa", borderRadius: 10, padding: "0.5rem", textAlign: "center" }}>
-                            <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}</div>
-                            <div style={{ fontSize: 10, color: "#bbb" }}>{label}</div>
-                          </div>
-                        );
-                      })}
-                      {result.insight && (
-                        <div style={{ flex: 3, background: `${cc}08`, borderRadius: 10, padding: "0.5rem 0.75rem", display: "flex", alignItems: "center" }}>
-                          <span style={{ fontSize: 12, color: "#555", lineHeight: 1.5 }}>💡 {result.insight}</span>
-                        </div>
-                      )}
                     </div>
                   )}
                 </>
@@ -2203,6 +2235,21 @@ export default function App() {
               </div>
               <div style={{ fontSize: 14, color: "#444", lineHeight: 1.75 }}>{result.feedback}</div>
             </div>
+
+            {/* Improvement Suggestions */}
+            {result.improvement_suggestions && result.improvement_suggestions.length > 0 && (
+              <div className="card" style={{ marginBottom: "1rem", background: "#FFFBEB", borderColor: "#FDE68A" }}>
+                <div style={{ fontSize: 11, color: "#D97706", fontWeight: 700, marginBottom: "0.5rem" }}>
+                  💡 改善のポイント
+                </div>
+                {result.improvement_suggestions.map((s, i) => (
+                  <div key={i} style={{ fontSize: 13, color: "#555", lineHeight: 1.7, padding: "0.2rem 0", display: "flex", gap: "0.4rem" }}>
+                    <span style={{ color: "#D97706", fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                    <span>{s}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Mastered / Gaps */}
             <div className="grid-2col" style={{ marginBottom: "1rem" }}>
@@ -2384,9 +2431,9 @@ export default function App() {
       }}>
         {/* 左: ロゴ + ストリーク */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
+          <Link href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
             teach<span style={{ color: "#FF6B9D" }}>AI</span>
-          </a>
+          </Link>
           {streak.currentStreak > 0 && (
             <div style={{
               display: "flex", alignItems: "center", gap: 3,
