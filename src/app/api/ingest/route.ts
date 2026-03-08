@@ -313,7 +313,11 @@ export async function POST(req: NextRequest) {
     const msg = e instanceof Error ? e.message : String(e);
     const stack = e instanceof Error ? (e.stack || "").split("\n").slice(0, 4).join(" | ") : "";
     console.error(`[ingest] step=${step} error=${msg}`);
-    return NextResponse.json({ error: `[${step}] ${msg}`, detail: stack }, { status: 500 });
+    const isAuthError = msg.includes("401") || msg.includes("403") || msg.includes("authentication") || msg.includes("invalid") || msg.includes("api_key");
+    if (isAuthError) {
+      return NextResponse.json({ error: "APIキーが無効または期限切れです。設定画面でAPIキーをご確認ください。" }, { status: 401 });
+    }
+    return NextResponse.json({ error: `処理中にエラーが発生しました（${step}）。もう一度お試しください。`, detail: stack }, { status: 500 });
   }
 }
 
