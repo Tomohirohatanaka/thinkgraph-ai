@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import Link from "next/link";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { getBaseUrl } from "@/lib/auth-url";
 
 const B = {
@@ -19,7 +20,6 @@ const B = {
 
 function SignupFormInner() {
   const supabase = createClient();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirectTo") || "/";
 
@@ -125,15 +125,15 @@ function SignupFormInner() {
               数分経っても届かない場合は、再度アカウント作成をお試しください。
             </p>
           </div>
-          <a href="/auth/login" style={{
+          <Link href="/auth/login" style={{
             display: "inline-block", marginTop: 24, padding: "14px 32px",
             background: B.gradientPrimary, color: "white", borderRadius: 14, textDecoration: "none",
             fontSize: 14, fontWeight: 700, boxShadow: "0 4px 16px rgba(10,35,66,0.2)",
-          }}>ログインページへ</a>
+          }}>ログインページへ</Link>
           <div style={{ marginTop: 12 }}>
-            <a href="/" style={{ fontSize: 13, color: B.teal, textDecoration: "none", fontWeight: 600 }}>
+            <Link href="/" style={{ fontSize: 13, color: B.teal, textDecoration: "none", fontWeight: 600 }}>
               まずはお試しで使ってみる →
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -156,13 +156,13 @@ function SignupFormInner() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <Link href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
-        </a>
+        </Link>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>
+          <Link href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>
             ログイン
-          </a>
+          </Link>
         </div>
       </nav>
 
@@ -294,8 +294,8 @@ function SignupFormInner() {
 
           <p style={{ textAlign: "center", marginTop: 24, fontSize: 13, color: B.sub }}>
             すでにアカウントをお持ちの方は{" "}
-            <a href={`/auth/login?redirectTo=${encodeURIComponent(redirectTo)}`}
-              style={{ color: B.teal, fontWeight: 700, textDecoration: "none" }}>ログイン</a>
+            <Link href={`/auth/login?redirectTo=${encodeURIComponent(redirectTo)}`}
+              style={{ color: B.teal, fontWeight: 700, textDecoration: "none" }}>ログイン</Link>
           </p>
         </div>
       </div>

@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
+
 export default function Error({
-  error,
+  error: _error,
   reset,
 }: {
   error: Error & { digest?: string };
@@ -45,12 +47,12 @@ export default function Error({
           >
             🔄 キャッシュクリア &amp; 再試行
           </button>
-          <a href="/" style={{
+          <Link href="/" style={{
             padding: "12px 28px", background: "#f3f4f6", color: "#374151",
             borderRadius: 10, textDecoration: "none", fontSize: 14, fontWeight: 600,
           }}>
             トップに戻る
-          </a>
+          </Link>
         </div>
       </div>
     </div>

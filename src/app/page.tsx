@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import GraphComparison from "@/components/GraphComparison";
 import CharacterGrowthTimeline from "@/components/CharacterGrowthTimeline";
@@ -408,20 +409,6 @@ function useSynth() {
 }
 
 // ─── UI Components ────────────────────────────────────────────
-function Bars({ color }: { color: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 3, height: 24 }}>
-      {[0.5, 1.0, 0.7, 1.3, 0.6, 1.1, 0.8].map((h, i) => (
-        <div key={i} style={{
-          width: 3, borderRadius: 2, background: color,
-          height: `${h * 16}px`,
-          animation: `bar ${0.5 + i * 0.07}s ease-in-out infinite alternate`,
-        }} />
-      ))}
-    </div>
-  );
-}
-
 function Ring({ value, color, label, size = 64 }: { value: number; color: string; label: string; size?: number }) {
   const r = size / 2 - 6, c = 2 * Math.PI * r;
   const offset = c - (Math.max(0, Math.min(100, value)) / 100) * c;
@@ -456,9 +443,8 @@ function Avatar({ char, size = 44, pulse, expression }: { char: Character; size?
     <div className="avatar-breathe" style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={pulse ? "avatar-glow" : ""} style={{
         filter: pulse ? `drop-shadow(0 0 ${size * 0.15}px ${char.color}60)` : `drop-shadow(0 2px ${size * 0.08}px ${char.color}30)`,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         "--glow-color": `${char.color}40`,
-      } as any}>
+      } as React.CSSProperties}>
         <defs>
           <radialGradient id={`${uid}_bg`} cx="50%" cy="40%" r="55%">
             <stop offset="0%" stopColor={`${char.color}35`} />
@@ -884,8 +870,6 @@ function CharDetail({
   onEditChar?: () => void;
 }) {
   const n = profile.length;
-  const idx = stageIndex(char, n);
-  const label = stageLabel(char, n);
   const next = nextThreshold(char, n);
   const cc = char.color;
 
@@ -1055,12 +1039,12 @@ export default function App() {
   const [skillMap, setSkillMap] = useState<SkillMap | null>(null);
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillError, setSkillError] = useState("");
-  const [proactive, setProactive] = useState<{
+  const [_proactive, setProactive] = useState<{
     message: string;
     suggestions: { topic: string; reason: string; emoji: string }[];
     mood: string;
   } | null>(null);
-  const [knowledgeGraph, setKnowledgeGraph] = useState<Record<string, unknown> | null>(null);
+  const [_knowledgeGraph, setKnowledgeGraph] = useState<Record<string, unknown> | null>(null);
 
   // セッション状態
   const [leadingPenalty, setLeadingPenalty] = useState(0);
@@ -1118,7 +1102,7 @@ export default function App() {
 
   // ── Supabase同期関数（アカウントベースのデータ管理）──────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function syncFromSupabase(user: any) {
+  async function syncFromSupabase(_user: any) {
     try {
       const res = await fetch("/api/user/sync");
       const data = await res.json();
@@ -1260,6 +1244,7 @@ export default function App() {
     } catch { /* ignore */ }
 
     return () => { subscription?.unsubscribe(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -2384,9 +2369,9 @@ export default function App() {
       }}>
         {/* 左: ロゴ + ストリーク */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
+          <Link href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: "#0A2342", letterSpacing: "-0.5px" }}>
             teach<span style={{ color: "#FF6B9D" }}>AI</span>
-          </a>
+          </Link>
           {streak.currentStreak > 0 && (
             <div style={{
               display: "flex", alignItems: "center", gap: 3,

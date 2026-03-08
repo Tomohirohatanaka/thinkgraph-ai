@@ -58,7 +58,7 @@ function extractYouTubeId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-async function extractYouTube(videoId: string, url: string): Promise<ExtractResult> {
+async function extractYouTube(videoId: string, _url: string): Promise<ExtractResult> {
   let title = `YouTube動画 (${videoId})`;
   let author = "";
 

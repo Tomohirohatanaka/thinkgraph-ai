@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
-import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { corsResponse } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
   let apiKey = "";

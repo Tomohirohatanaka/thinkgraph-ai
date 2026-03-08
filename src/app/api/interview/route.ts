@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
-import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { corsResponse } from "@/lib/api";
 import { resolveApiKey } from "@/lib/trial-key";
 
 interface LogicNode { id: string; label: string; node_type: string; depth: number; }
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
     const llmRes = await callLLM({
       provider,
       apiKey: effectiveKey,
+      system,
       messages: apiMsgs,
       maxTokens: 300,
     });

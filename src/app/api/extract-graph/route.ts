@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { corsResponse } from "@/lib/api";
 import { callLLM, detectProvider } from "@/lib/llm";
 import { resolveApiKey } from "@/lib/trial-key";
 

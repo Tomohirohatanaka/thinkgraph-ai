@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, detectProvider } from "@/lib/llm";
-import { CORS_HEADERS, corsResponse } from "@/lib/api";
+import { corsResponse } from "@/lib/api";
 import { resolveApiKey } from "@/lib/trial-key";
 
 interface Character {
@@ -29,8 +29,6 @@ export async function POST(req: NextRequest) {
 
     const charName = character?.name ?? "キャラクター";
     const charEmoji = character?.emoji ?? "🤖";
-    const charPersonality = character?.personality ?? "好奇心旺盛";
-
     const profileSummary = profile.map(e =>
       `- トピック「${e.title}」(${e.mode}) スコア:${e.score}点\n  教えてもらった概念:${(e.mastered || []).join("、") || "なし"}\n  まだ理解できていない概念:${(e.gaps || []).join("、") || "なし"}`
     ).join("\n");

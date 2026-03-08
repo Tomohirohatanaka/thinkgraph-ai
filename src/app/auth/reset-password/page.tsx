@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getBaseUrl } from "@/lib/auth-url";
 
@@ -62,12 +63,12 @@ export default function ResetPasswordPage() {
             <strong>{email}</strong> にパスワードリセットのリンクを送りました。<br />
             メールをご確認ください。
           </p>
-          <a href="/auth/login" style={{
+          <Link href="/auth/login" style={{
             display: "inline-block", marginTop: 24, padding: "14px 32px",
             background: B.gradientPrimary, color: "white", borderRadius: 14,
             textDecoration: "none", fontSize: 14, fontWeight: 700,
             boxShadow: "0 4px 16px rgba(10,35,66,0.2)",
-          }}>ログインページへ戻る</a>
+          }}>ログインページへ戻る</Link>
         </div>
       </div>
     );
@@ -89,12 +90,12 @@ export default function ResetPasswordPage() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <Link href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
-        </a>
-        <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>
+        </Link>
+        <Link href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>
           ログイン
-        </a>
+        </Link>
       </nav>
 
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "100px 20px 40px" }}>
@@ -150,9 +151,9 @@ export default function ResetPasswordPage() {
           </form>
 
           <p style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: B.sub }}>
-            <a href="/auth/login" style={{ color: B.teal, fontWeight: 600, textDecoration: "none" }}>
+            <Link href="/auth/login" style={{ color: B.teal, fontWeight: 600, textDecoration: "none" }}>
               ← ログインページへ戻る
-            </a>
+            </Link>
           </p>
         </div>
       </div>

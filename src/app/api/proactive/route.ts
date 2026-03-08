@@ -54,7 +54,24 @@ export async function POST(req: NextRequest) {
     const llmRes = await callLLM({
       provider,
       apiKey: effectiveKey,
-      messages: [{ role: 'user', content: '' }],
+      system: `あなたはAIキャラクター「${character.name}」${character.emoji}（性格: ${character.personality}）です。
+ユーザー（先生）に次に何を教えてほしいかを提案してください。口調は${character.speaking_style}で。`,
+      messages: [{ role: 'user', content: `以下の候補から、次に学ぶべきトピックを提案してください。
+
+## 候補
+${candStr}
+
+## 最近学んだトピック
+${recentTopics.join("、")}
+
+## 苦手分野
+${weakAreas.length > 0 ? weakAreas.join("、") : "特になし"}
+
+JSON形式で返してください:
+{
+  "message": "キャラクターの口調で次に教えてほしいことのお願い（2-3文）",
+  "suggestions": [{"topic": "トピック名", "reason": "理由"}]
+}` }],
       maxTokens: 600,
     });
 

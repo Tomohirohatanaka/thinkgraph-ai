@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 
 /* ══════════════════════════════════════════════════════════════
    BRAND SYSTEM
@@ -141,7 +142,7 @@ function Hero() {
         </p>
 
         <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: "3rem" }}>
-          <a href="/" style={{
+          <Link href="/" style={{
             display: "inline-flex", alignItems: "center", gap: 10,
             padding: "18px 40px", borderRadius: 14,
             background: B.gradientPrimary, color: "#fff",
@@ -151,7 +152,7 @@ function Hero() {
           }}>
             無料で今すぐ体験する
             <span style={{ fontSize: 20 }}>→</span>
-          </a>
+          </Link>
           <a href="#demo" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             padding: "18px 32px", borderRadius: 14,
@@ -592,13 +593,13 @@ function Pricing() {
                   </div>
                 ))}
               </div>
-              <a href="/" style={{
+              <Link href="/" style={{
                 display: "block", textAlign: "center",
                 padding: "14px 24px", borderRadius: 12,
                 fontSize: 15, fontWeight: 700, textDecoration: "none",
                 transition: "all 0.2s",
                 ...plan.ctaStyle,
-              }}>{plan.cta}</a>
+              }}>{plan.cta}</Link>
             </div>
           ))}
         </div>
@@ -754,7 +755,7 @@ function CTASection() {
           APIキーなしでも無料で体験可能。<br />
           あなたの「教える力」を、スコアで見てみませんか？
         </p>
-        <a href="/" style={{
+        <Link href="/" style={{
           display: "inline-flex", alignItems: "center", gap: 10,
           padding: "18px 48px", borderRadius: 14,
           background: "#fff", color: B.navy,
@@ -764,7 +765,7 @@ function CTASection() {
         }}>
           無料で始める
           <span style={{ fontSize: 20 }}>→</span>
-        </a>
+        </Link>
         <div style={{ marginTop: "1.5rem", fontSize: 13, color: "rgba(255,255,255,0.5)" }}>
           30秒で開始 · クレジットカード不要
         </div>
@@ -797,10 +798,17 @@ function Footer() {
               <div key={col.title}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" as const, letterSpacing: "0.1em", marginBottom: 12 }}>{col.title}</div>
                 {col.links.map(l => (
-                  <a key={l.label} href={l.href} style={{ display: "block", fontSize: 14, color: "rgba(255,255,255,0.6)", textDecoration: "none", marginBottom: 8, transition: "color 0.2s" }}
-                    onMouseEnter={e => { (e.target as HTMLElement).style.color = "#fff"; }}
-                    onMouseLeave={e => { (e.target as HTMLElement).style.color = "rgba(255,255,255,0.6)"; }}
-                  >{l.label}</a>
+                  l.href.startsWith("#") ? (
+                    <a key={l.label} href={l.href} style={{ display: "block", fontSize: 14, color: "rgba(255,255,255,0.6)", textDecoration: "none", marginBottom: 8, transition: "color 0.2s" }}
+                      onMouseEnter={e => { (e.target as HTMLElement).style.color = "#fff"; }}
+                      onMouseLeave={e => { (e.target as HTMLElement).style.color = "rgba(255,255,255,0.6)"; }}
+                    >{l.label}</a>
+                  ) : (
+                    <Link key={l.label} href={l.href} style={{ display: "block", fontSize: 14, color: "rgba(255,255,255,0.6)", textDecoration: "none", marginBottom: 8, transition: "color 0.2s" }}
+                      onMouseEnter={e => { (e.target as HTMLElement).style.color = "#fff"; }}
+                      onMouseLeave={e => { (e.target as HTMLElement).style.color = "rgba(255,255,255,0.6)"; }}
+                    >{l.label}</Link>
+                  )
                 ))}
               </div>
             ))}
@@ -849,28 +857,28 @@ export default function LandingClient() {
         background: "rgba(255,255,255,0.95)", backdropFilter: "blur(16px)",
         borderBottom: "1px solid rgba(0,0,0,0.04)",
       }}>
-        <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
+        <Link href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 900, color: B.navy, letterSpacing: "-0.5px" }}>
           teach<span style={{ color: B.accent }}>AI</span>
-        </a>
+        </Link>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <a href="#pricing" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>料金</a>
           {authUser ? (
             <>
-              <a href="/dashboard" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ダッシュボード</a>
-              <a href="/" style={{
+              <Link href="/dashboard" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ダッシュボード</Link>
+              <Link href="/" style={{
                 padding: "10px 22px", fontSize: 13, fontWeight: 700,
                 color: "#fff", textDecoration: "none", borderRadius: 10,
                 background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
-              }}>AIに教える</a>
+              }}>AIに教える</Link>
             </>
           ) : (
             <>
-              <a href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ログイン</a>
-              <a href="/" style={{
+              <Link href="/auth/login" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, color: B.sub, textDecoration: "none" }}>ログイン</Link>
+              <Link href="/" style={{
                 padding: "10px 22px", fontSize: 13, fontWeight: 700,
                 color: "#fff", textDecoration: "none", borderRadius: 10,
                 background: B.gradientPrimary, boxShadow: "0 2px 8px rgba(10,35,66,0.15)",
-              }}>無料で始める</a>
+              }}>無料で始める</Link>
             </>
           )}
         </div>
