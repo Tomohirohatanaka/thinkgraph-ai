@@ -311,11 +311,11 @@ ${scoringFormat}`;
         return isNaN(n) ? fallback : Math.max(0, Math.min(100, Math.round(n)));
       };
 
-      const numV3 = (v: unknown, fallback = 2.5): number => {
+      const numV3 = (v: unknown, fallback = 2.0): number => {
         const n = parseFloat(String(v ?? ""));
         if (isNaN(n)) return fallback;
-        // 0.1刻みに丸める (1.0-5.0)
-        return Math.max(1.0, Math.min(5.0, Math.round(n * 10) / 10));
+        // 0.1刻みに丸める (0.0-5.0)
+        return Math.max(0, Math.min(5.0, Math.round(n * 10) / 10));
       };
 
       // JSON前のテキスト = キャラの締めセリフ

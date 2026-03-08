@@ -2058,10 +2058,10 @@ export default function App() {
     const displayMax = isV3 ? "/ 5.00" : "/ 100";
     const grade = result.grade || result.score_v3?.grade;
     const topEmoji = isV3
-      ? (v3w >= 4.2 ? "🎉" : v3w >= 3.4 ? "✨" : v3w >= 2.6 ? "💪" : v3w >= 1.8 ? "📚" : "📖")
+      ? (v3w >= 4.0 ? "🎉" : v3w >= 3.0 ? "✨" : v3w >= 2.0 ? "💪" : v3w >= 1.0 ? "📚" : "📖")
       : (total >= 85 ? "🎉" : total >= 70 ? "✨" : total >= 50 ? "💪" : "📚");
     const headline = isV3
-      ? (v3w >= 4.2 ? "完璧に教えられた！" : v3w >= 3.4 ? "しっかり理解して教えられた！" : v3w >= 2.6 ? "基礎はあるがもう少し深く！" : v3w >= 1.8 ? "理解が浅い部分が多い" : "もう一度教材を確認しよう")
+      ? (v3w >= 4.0 ? "完璧に教えられた！" : v3w >= 3.0 ? "しっかり理解して教えられた！" : v3w >= 2.0 ? "基礎はあるがもう少し深く！" : v3w >= 1.0 ? "理解が浅い部分が多い" : "もう一度教材を確認しよう")
       : (total >= 85 ? "完璧に教えられた！" : total >= 70 ? "上手に教えられた！" : total >= 50 ? "もう少し深く教えてみよう！" : "もう一度確認してから教えよう");
     const hasPenalty = !isV3 && (result.leading_penalty > 0 || result.gave_up_penalty > 0);
     const gradeColor = (g?: string) =>

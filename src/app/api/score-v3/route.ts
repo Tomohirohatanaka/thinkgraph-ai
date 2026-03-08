@@ -27,12 +27,12 @@ export async function POST(req: NextRequest) {
       rqs_avg?: number;
     };
 
-    // バリデーション (1.0-5.0、0.1刻み)
+    // バリデーション (0.0-5.0、0.1刻み)
     const nums = { completeness, depth, clarity, structural_coherence, pedagogical_insight };
     for (const [key, val] of Object.entries(nums)) {
-      if (typeof val !== "number" || val < 1.0 || val > 5.0) {
+      if (typeof val !== "number" || val < 0 || val > 5.0) {
         return NextResponse.json(
-          { error: `${key} must be a number between 1.0 and 5.0` },
+          { error: `${key} must be a number between 0.0 and 5.0` },
           { status: 400, headers: CORS_HEADERS }
         );
       }
